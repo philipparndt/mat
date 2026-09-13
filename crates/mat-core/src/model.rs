@@ -670,6 +670,9 @@ pub struct Master {
     pub comp: Option<CompSettings>,
     /// 0..1 tape-style saturation before the limiter.
     pub saturation: f32,
+    /// Soft clipper threshold in dBFS before the limiter (0 = off). Shaves
+    /// transient peaks so the limiter can run hotter.
+    pub clip_db: f32,
     pub reverb: ReverbSettings,
     pub delay: DelaySettings,
     pub limiter: LimiterSettings,
@@ -682,6 +685,7 @@ impl Default for Master {
             sidechain: None,
             eq: None,
             width: 1.0,
+            clip_db: 0.0,
             comp: None,
             saturation: 0.0,
             reverb: ReverbSettings { enabled: true, size: 0.7, decay: 0.7, damping: 0.4, predelay_ms: 20.0, shimmer: 0.0, lowcut_hz: 0.0, highcut_hz: 0.0 },

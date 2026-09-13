@@ -66,6 +66,19 @@ pub fn compress(settings: &CompSettings, left: &mut [f32], right: &mut [f32], sr
     }
 }
 
+/// Soft clipper: linear below the threshold, a smooth knee above it that
+/// never exceeds the threshold by more than about 2 dB.
+pub fn clip(threshold_db: f32, left: &mut [f32], right: &mut [f32]) {
+    let t = 10f32.powf(threshold_db / 20.0);
+    for s in left.iter_mut().chain(right.iter_mut()) {
+        let a = s.abs();
+        if a > t {
+            let over = (a - t) / t;
+            *s = s.signum() * t * (1.0 + over.tanh() * 0.25);
+        }
+    }
+}
+
 /// Gentle tape-style saturation: soft clipping with a touch of even
 /// harmonics, level-compensated so the perceived loudness stays put.
 pub fn saturate(amount: f32, left: &mut [f32], right: &mut [f32]) {

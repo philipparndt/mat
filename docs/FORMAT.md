@@ -320,10 +320,11 @@ master
   delay time=3/16 feedback=0.35 tone=3k mod=3ms rate=0.4   # time is a note value; mod/rate chorus the echoes
   saturation 0.3                                        # tape-style, 0..1
   comp threshold=-14 ratio=3 attack=10ms release=150ms makeup=2   # bus compressor, or: comp off
+  clip -4                                               # soft clipper before the limiter: shaves kick peaks for loud masters
   limiter ceiling=-1 release=80ms                       # or: limiter off
 ```
 
-Order on the master: sidechain, gain, eq, width, saturation, compressor, limiter.
+Order on the master: sidechain, gain, eq, width, saturation, compressor, clip, limiter.
 
 ## Rendering for games
 

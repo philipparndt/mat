@@ -1440,6 +1440,15 @@ impl Parser {
                         set(&mut m.saturation, self.value(t, &t.text, 0.0, 1.0));
                     }
                 }
+                "clip" => {
+                    if off {
+                        m.clip_db = 0.0;
+                        continue;
+                    }
+                    if let Some(t) = self.arg(line, 1, "threshold in dB such as -3") {
+                        set(&mut m.clip_db, self.db(t, &t.text).map(|v| v.min(-0.1)));
+                    }
+                }
                 "limiter" => {
                     m.limiter.enabled = !off;
                     for (key, val, tok) in self.options(line, if off { 2 } else { 1 }) {
@@ -1451,7 +1460,7 @@ impl Parser {
                         }
                     }
                 }
-                other => self.unknown_keyword(kw, other, "the master block", &["gain", "sidechain", "eq", "width", "reverb", "delay", "comp", "saturation", "limiter"]),
+                other => self.unknown_keyword(kw, other, "the master block", &["gain", "sidechain", "eq", "width", "reverb", "delay", "comp", "saturation", "clip", "limiter"]),
             }
         }
         self.song.master = m;

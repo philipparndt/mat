@@ -426,10 +426,11 @@ track impact
   play impact_note
 
 master preset techno
-  gain 9
+  gain 16
   width 0.85
-  saturation 0.4
+  saturation 0.35
   comp threshold=-20 ratio=3.5 attack=8ms release=120ms makeup=3
+  clip -1
   limiter ceiling=-0.3 release=60ms
   sidechain drums threshold=-32 ratio=8 attack=1ms release=110ms darken=1.5
   reverb size=0.9 decay=0.85 damping=0.3 predelay=30ms shimmer=0.35 lowcut=250 highcut=9k

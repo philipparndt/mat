@@ -306,6 +306,9 @@ pub fn render(timeline: &Timeline, sample_rate: u32, mut stems: HashMap<usize, S
     if let Some(comp) = &master.comp {
         crate::dsp::dynamics::compress(comp, &mut left, &mut right, sr);
     }
+    if master.clip_db < 0.0 {
+        crate::dsp::dynamics::clip(master.clip_db, &mut left, &mut right);
+    }
     if master.limiter.enabled {
         limiter::limit(&mut left, &mut right, master.limiter.ceiling_db, master.limiter.release_ms, sr);
     }
