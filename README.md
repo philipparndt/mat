@@ -45,7 +45,7 @@ swift build -c release --package-path swift
 * `crates/mat-core`: parser with diagnostics, arrangement, DSP (PolyBLEP
   oscillators, JP-8000 style supersaw, ZDF state variable filter, EQ, chorus,
   sidechain ducking, Dattorro plate reverb, ping-pong delay, look-ahead limiter),
-  synth and drum voices, EXS sampler with sinc resampling, CLAP plugin host, audio tracks, offline renderer.
+  synth (with FM) and drum voices, TB-303, EXS sampler with sinc resampling, scratch turntable, CLAP plugin host, audio tracks, offline renderer.
 * `crates/mat-cli`: the `mat` command.
 * `swift/`: `mat-au`, which renders Audio Unit tracks offline into dry stems.
   Mixing and effects always happen in the Rust engine, so synth tracks and
@@ -63,7 +63,7 @@ swift build -c release --package-path swift
 | `examples/dream.song` | dream dance: Steinway piano with pedal, pads, string swells, house kit, all from presets (needs Logic content) |
 | `examples/undertow.song` | melodic techno: rumbling kick, rolling bass, hypnotic arp, bell-pluck hook, 303 bed (presets only) |
 | `examples/undertow-b.song` | the same track with different melodies: FM e-piano hook, glassy FM arp, bell counter line, swing |
-| `examples/neon.song` | K-pop: 808 trap verses, brass-stab chorus, chanted post-chorus hook (presets only) |
+| `examples/neon.song` | K-pop: 808 trap verses, brass-stab chorus, chanted post-chorus hook, scratches (presets only) |
 
 ## Adaptive game music
 

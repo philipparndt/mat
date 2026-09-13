@@ -319,7 +319,8 @@ fn check_compatible(pat: &Pattern, kind: &InstrumentKind) -> Result<(), &'static
     let has_notes = pat.events.iter().any(|e| matches!(e.pitch, Pitch::Note(_)));
     match kind {
         InstrumentKind::Synth(_) | InstrumentKind::Tb303(_) if has_drums => Err("contains drum hits"),
-        InstrumentKind::Drums(_) if has_notes => Err("contains pitched notes"),
+        InstrumentKind::Drums(_) | InstrumentKind::Scratch(_) if has_notes => Err("contains pitched notes"),
+        InstrumentKind::Scratch(_) if pat.events.iter().any(|e| matches!(e.pitch, Pitch::Drum(d) if !d.is_scratch())) => Err("contains drum hits (scratch moves are baby, fwd, back, scribble, chirp, transform)"),
         _ => Ok(()),
     }
 }
@@ -330,6 +331,7 @@ fn kind_label(kind: &InstrumentKind) -> &'static str {
         InstrumentKind::Drums(_) => "a drum kit",
         InstrumentKind::Sampler(_) => "a sampler",
         InstrumentKind::Samples(_) => "a samples instrument",
+        InstrumentKind::Scratch(_) => "a scratch instrument",
         InstrumentKind::AudioUnit(_) => "an Audio Unit",
         InstrumentKind::Audio(_) => "an audio file",
         InstrumentKind::Clap(_) => "a CLAP plugin",
@@ -383,6 +385,7 @@ pub fn resolve_paths(timeline: &mut Timeline, song_dir: &Path) {
                 }
             }
             InstrumentKind::Audio(a) => a.path = resolve_load_path(&a.path, song_dir),
+            InstrumentKind::Scratch(s) => s.path = resolve_load_path(&s.path, song_dir),
             InstrumentKind::Clap(c) => c.patch = c.patch.as_deref().map(|p| resolve_load_path(p, song_dir)),
             _ => {}
         }

@@ -268,6 +268,7 @@ fn render_track(track: &TimelineTrack, track_index: usize, sr: f32) -> Option<Re
             Sampler::load(std::path::Path::new(&def.load)).and_then(|sampler| sampler.render(&track.notes, def, sr)),
         ),
         InstrumentKind::Samples(def) => Some(Sampler::from_zones(&def.zones).and_then(|sampler| sampler.render(&track.notes, &def.settings, sr))),
+        InstrumentKind::Scratch(def) => Some(crate::instruments::scratch::render(def, &track.notes, sr)),
         InstrumentKind::Synth(def) => Some(Ok(
             track
                 .notes

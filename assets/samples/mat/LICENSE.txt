@@ -1,0 +1,2 @@
+These samples were rendered with mat itself (brass-stab and choir-pad presets)
+and are free to use without restriction (CC0).

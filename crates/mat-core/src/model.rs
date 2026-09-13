@@ -18,11 +18,38 @@ pub enum DrumKind {
     Rim,
     Crash,
     Ride,
+    // Scratch moves, played by `scratch` instruments.
+    Baby,
+    Fwd,
+    Back,
+    Scribble,
+    Chirp,
+    Transform,
 }
 
 impl DrumKind {
-    pub const ALL: [DrumKind; 9] =
-        [Self::Kick, Self::Snare, Self::Clap, Self::Hat, Self::OpenHat, Self::Tom, Self::Rim, Self::Crash, Self::Ride];
+    pub const ALL: [DrumKind; 15] = [
+        Self::Kick,
+        Self::Snare,
+        Self::Clap,
+        Self::Hat,
+        Self::OpenHat,
+        Self::Tom,
+        Self::Rim,
+        Self::Crash,
+        Self::Ride,
+        Self::Baby,
+        Self::Fwd,
+        Self::Back,
+        Self::Scribble,
+        Self::Chirp,
+        Self::Transform,
+    ];
+    pub const SCRATCHES: [DrumKind; 6] = [Self::Baby, Self::Fwd, Self::Back, Self::Scribble, Self::Chirp, Self::Transform];
+
+    pub fn is_scratch(self) -> bool {
+        Self::SCRATCHES.contains(&self)
+    }
 
     pub fn name(self) -> &'static str {
         match self {
@@ -35,6 +62,12 @@ impl DrumKind {
             Self::Rim => "rim",
             Self::Crash => "crash",
             Self::Ride => "ride",
+            Self::Baby => "baby",
+            Self::Fwd => "fwd",
+            Self::Back => "back",
+            Self::Scribble => "scribble",
+            Self::Chirp => "chirp",
+            Self::Transform => "transform",
         }
     }
 
@@ -54,6 +87,12 @@ impl DrumKind {
             Self::OpenHat => 46,
             Self::Crash => 49,
             Self::Ride => 51,
+            Self::Baby => 60,
+            Self::Fwd => 61,
+            Self::Back => 62,
+            Self::Scribble => 63,
+            Self::Chirp => 64,
+            Self::Transform => 65,
         }
     }
 }
@@ -250,7 +289,7 @@ impl Default for DrumVoice {
 #[derive(Debug, Clone, Default, Serialize)]
 pub struct DrumKit {
     /// Indexed like `DrumKind::ALL`.
-    pub voices: [DrumVoice; 9],
+    pub voices: [DrumVoice; 15],
 }
 
 impl DrumKit {
@@ -286,6 +325,17 @@ pub struct SampleZone {
 pub struct SamplesDef {
     pub zones: Vec<SampleZone>,
     pub settings: SamplerDef,
+}
+
+/// A turntable: one audio region that scratch moves play forward and back.
+#[derive(Debug, Clone, Serialize)]
+pub struct ScratchDef {
+    pub path: String,
+    pub start: f64,
+    pub length: Option<f64>,
+    /// How far the record travels per move, 1 = normal playback speed on average.
+    pub speed: f32,
+    pub gain_db: f32,
 }
 
 /// A sampled instrument played by the built-in sampler (Logic/GarageBand `.exs`).
@@ -469,6 +519,7 @@ pub enum InstrumentKind {
     Drums(DrumKit),
     Sampler(SamplerDef),
     Samples(SamplesDef),
+    Scratch(ScratchDef),
     #[serde(rename = "au")]
     AudioUnit(AudioUnitDef),
     Audio(AudioSource),

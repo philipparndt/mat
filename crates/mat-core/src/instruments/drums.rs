@@ -29,6 +29,8 @@ pub fn render_hit(note: &TimedNote, voice: &DrumVoice, choke_at: Option<f64>, sa
         DrumKind::Rim => rim(sr, tune, voice.decay, &mut rng),
         DrumKind::Crash => cymbal(sr, tune * 0.85, 1.8 * voice.decay, 5_500.0, &mut rng),
         DrumKind::Ride => cymbal(sr, tune * 1.1, 1.2 * voice.decay, 8_000.0, &mut rng),
+        // Scratch moves need a scratch instrument; a drum kit stays silent on them.
+        _ => Vec::new(),
     };
 
     let choke = choke_at.map(|c| (c * sr as f64) as usize);

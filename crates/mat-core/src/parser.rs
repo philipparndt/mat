@@ -273,6 +273,10 @@ impl Parser {
                 Some(def) => InstrumentKind::Sampler(def),
                 None => return,
             },
+            Some("scratch") => match self.scratch_body(block) {
+                Some(def) => InstrumentKind::Scratch(def),
+                None => return,
+            },
             Some("samples") => match self.samples_body(block) {
                 Some(def) => InstrumentKind::Samples(def),
                 None => return,
@@ -287,7 +291,7 @@ impl Parser {
                 self.err_hint(
                     kind_tok.unwrap().span,
                     format!("unknown instrument type '{other}'"),
-                    "expected one of: synth, drums, sampler, samples, clap, tb303, au",
+                    "expected one of: synth, drums, sampler, samples, scratch, clap, tb303, au",
                 );
                 return;
             }
@@ -487,6 +491,43 @@ impl Parser {
             kit.voices[kind as usize] = voice;
         }
         kit
+    }
+
+    fn scratch_body(&mut self, block: &Block) -> Option<ScratchDef> {
+        let mut def = ScratchDef { path: String::new(), start: 0.0, length: None, speed: 1.0, gain_db: 0.0 };
+        for line in &block.body {
+            let kw = &line.tokens[0];
+            match kw.text.as_str() {
+                "sample" => {
+                    let Some(file) = self.arg(line, 1, "audio file path") else { continue };
+                    def.path = file.text.clone();
+                    for (key, val, tok) in self.options(line, 2) {
+                        match key {
+                            "at" => match parse_seconds(val) {
+                                Some(v) if v >= 0.0 => def.start = v,
+                                _ => self.err_hint(tok.span, format!("invalid time '{val}'"), "e.g. at=1.5s"),
+                            },
+                            "length" => match parse_seconds(val) {
+                                Some(v) if v > 0.0 => def.length = Some(v),
+                                _ => self.err_hint(tok.span, format!("invalid length '{val}'"), "e.g. length=0.6s"),
+                            },
+                            _ => self.unknown_option(tok, key, "sample", &["at", "length"]),
+                        }
+                    }
+                }
+                "speed" | "gain" => {
+                    let Some(t) = self.arg(line, 1, "value") else { continue };
+                    if kw.text == "speed" { set(&mut def.speed, self.value(t, &t.text, 0.2, 4.0)) } else { set(&mut def.gain_db, self.db(t, &t.text)) }
+                    self.extra_tokens(line, 2);
+                }
+                other => self.unknown_keyword(kw, other, "scratch instruments", &["sample", "speed", "gain"]),
+            }
+        }
+        if def.path.is_empty() {
+            self.err_hint(block.header.tokens[1].span, "scratch instrument has no sample", "add a line: sample \"vocal.wav\" at=0.2s length=0.6s");
+            return None;
+        }
+        Some(def)
     }
 
     fn samples_body(&mut self, block: &Block) -> Option<SamplesDef> {

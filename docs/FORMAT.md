@@ -38,7 +38,7 @@ Notes are written as `<pitch>[:<duration>][@<velocity>]`.
 | Pitch     | letter + optional `#`/`b` + octave (`C4` = middle C) | `C4` `F#3` `Bb2` |
 | Chord     | pitches in brackets | `[C4 E4 G4]:h` |
 | Rest      | `r` or `_` | `r:q` |
-| Drum hit  | `kick` `snare` `clap` `hat` `openhat` `tom` `rim` `crash` `ride` | `kick:q` |
+| Drum hit  | `kick` `snare` `clap` `hat` `openhat` `tom` `rim` `crash` `ride`; scratch moves `baby` `fwd` `back` `scribble` `chirp` `transform` | `kick:q` |
 | Duration  | `w` whole, `h` half, `q` quarter, `e` eighth, `s` 16th, `t` 32nd | `q` |
 |           | dotted, triplet, fraction, sum | `q.` `e3` `3/16` `h+e` |
 | Velocity  | 1–127 (default 100) | `@90` |
@@ -162,6 +162,25 @@ Drum lines use the drum names; `note <root>` lines are pitched across `keys=`
 (default: all keys) from the note the region was recorded at. Options:
 `at` and `length` in the file, `loop` relative to the region start, `keys`, `vel`,
 `gain` (dB), `tune` (semitones). Regions fade out over their last 10 ms.
+
+### `scratch`: turntable scratching
+
+```
+instrument dj scratch
+  sample "vocal.wav" at=0.2s length=0.6s   # the bit of record under the needle
+  speed 1.2                                # how far it travels per move
+  gain -3
+```
+
+Write moves like drums, in grid or note patterns; each hit's duration is the
+length of the move: `baby` (forward and back), `fwd`, `back`, `scribble` (fast
+back-and-forth), `chirp` (fader cuts at every reversal), `transform` (fader stutter).
+
+```
+pattern cuts grid=1/8
+  baby      x...x...
+  transform ......x.
+```
 
 ### `sampler`: sampled instruments (Logic / GarageBand `.exs`)
 

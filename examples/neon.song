@@ -4,7 +4,7 @@
 # Original. C minor, 128 BPM; verses feel half-time.
 #
 # Built from presets only (`mat presets`); no external content needed.
-# Layers (stems): drums, sub, bass, chords, brass, hook, chop, lead, fx
+# Layers (stems): drums, sub, bass, chords, brass, hook, chop, lead, dj, fx
 
 title "Neon"
 tempo 128
@@ -36,6 +36,9 @@ instrument lead preset supersaw-lead
   filter lowpass cutoff=4000 res=0.1 env=1 keytrack=0.3
 instrument pad preset dream-pad
   filter lowpass cutoff=800 res=0.1 keytrack=0.3
+instrument dj scratch
+  sample "samples:mat/brass-stab.wav" at=0s length=0.6s
+  speed 1.4
 instrument riser preset riser
 instrument impact preset impact
 
@@ -158,6 +161,16 @@ pattern post grid=1/16
 pattern bridge_perc grid=1/16
   hat     ....x.......x...
   rim     ..x.......x.....
+
+# Scratches: a chirp answering the chant, and a transform stutter into the drop.
+pattern cuts grid=1/16
+  chirp     ......xx........
+  baby      ..............x.
+
+pattern cuts_drop grid=1/16
+  transform ........xx......
+  scribble  ............xx..
+  baby      ..............x.
 
 pattern break_hit grid=1/16
   kick  X...............
@@ -348,6 +361,23 @@ track lead
   sidechain drums depth=0.35
   at 105
   play chorus_melody x4 transpose=12
+
+track dj
+  instrument dj
+  layer dj
+  gain -8
+  pan 0.3
+  reverb 0.2
+  delay 0.15
+  eq lowcut=300 high=+2 highfreq=6k
+  at 49
+  play cuts x8
+  at 31
+  play cuts_drop x2
+  at 79
+  play cuts_drop x2
+  at 103
+  play cuts_drop x2
 
 track riser
   instrument riser
