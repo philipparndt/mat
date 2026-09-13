@@ -310,3 +310,43 @@ preset 909-kit drums "Synthesized 909-style kit: punchy clicky kick, snappy snar
   openhat decay=0.7 gain=-1 tune=1
   ride gain=-6
   crash gain=-3
+
+preset mallet samples "Wooden mallet (tuned bong sample, CC0), plays across the keyboard"
+  note D#4 "samples:sonic-pi/elec_bong.wav" keys=C1-C7
+  amp release=0.25
+  velocity 12
+
+preset music-box samples "Small bell / music box (CC0)"
+  note C4 "samples:sonic-pi/elec_bell.wav" keys=C2-C8
+  note A5 "samples:sonic-pi/elec_ping.wav" keys=C2-C8 gain=-8
+  amp release=0.4
+  velocity 12
+
+preset tabla-kit samples "Tabla and hand percussion (CC0): kick=ghe, snare=na, tom=tun, rim=te, hats=tas/ke"
+  kick    "samples:sonic-pi/tabla_ghe1.wav"   gain=-2
+  kick    "samples:sonic-pi/tabla_ghe3.wav"   gain=-8
+  snare   "samples:sonic-pi/tabla_na.wav"     gain=-4
+  clap    "samples:sonic-pi/tabla_dhec.wav"   gain=-4
+  tom     "samples:sonic-pi/tabla_tun1.wav"   gain=-4
+  rim     "samples:sonic-pi/tabla_te1.wav"    gain=-4
+  hat     "samples:sonic-pi/tabla_tas1.wav"   gain=-10
+  openhat "samples:sonic-pi/tabla_ke1.wav"    gain=-8
+  ride    "samples:sonic-pi/tabla_na_o.wav"   gain=-10
+  crash   "samples:sonic-pi/drum_splash_soft.wav" gain=-10
+  amp release=40ms
+  velocity 14
+
+preset organic-kit samples "Techno kit with organic percussion on top (CC0): wood rim, shaker-like tas, bell ride"
+  kick    "samples:sonic-pi/bd_tek.wav"             gain=-1
+  kick    "samples:sonic-pi/bd_808.wav"             gain=-8
+  clap    "samples:sonic-pi/perc_snap.wav"          gain=-6
+  snare   "samples:sonic-pi/tabla_na.wav"           gain=-6
+  hat     "samples:sonic-pi/tabla_tas1.wav"         gain=-12
+  hat     "samples:sonic-pi/drum_cymbal_closed.wav" gain=-16
+  openhat "samples:sonic-pi/drum_cymbal_pedal.wav"  gain=-10
+  rim     "samples:sonic-pi/elec_wood.wav"          gain=-10
+  tom     "samples:sonic-pi/tabla_tun2.wav"         gain=-6
+  ride    "samples:sonic-pi/perc_bell.wav"          gain=-18
+  crash   "samples:sonic-pi/drum_splash_hard.wav"   gain=-11
+  amp release=40ms
+  velocity 14

@@ -42,7 +42,7 @@ instrument acid preset acid
   accent 0.9
 instrument dj scratch
   source drums bars=6-7
-  speed 2
+  speed 1
   pitch keep
   grain 1/16
 instrument riser preset riser
