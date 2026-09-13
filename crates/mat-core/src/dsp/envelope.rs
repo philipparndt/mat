@@ -42,6 +42,11 @@ impl Envelope {
         }
     }
 
+    /// Current level without advancing.
+    pub fn peek(&self) -> f32 {
+        self.level
+    }
+
     pub fn is_done(&self) -> bool {
         self.stage == Stage::Done
     }

@@ -192,6 +192,27 @@ pub fn arrange(song: &Song) -> Result<Timeline, Vec<Diagnostic>> {
                 }
             }
         }
+        // Swing: offbeat steps of the grid move late. Humanize: small random
+        // timing and velocity changes, deterministic per track.
+        let swing = track.swing.unwrap_or(song.swing);
+        let grid = song.seconds(track.swing_grid.unwrap_or(song.swing_grid));
+        if swing > 0.5 && grid > 0.0 {
+            let delay = (2.0 * swing as f64 - 1.0) * grid;
+            for n in &mut notes {
+                let steps = n.start / grid;
+                if (steps - steps.round()).abs() < 1e-4 && (steps.round() as i64) % 2 == 1 {
+                    n.start += delay;
+                    n.duration = (n.duration - delay).max(grid * 0.5);
+                }
+            }
+        }
+        if let Some(h) = track.humanize {
+            let mut rng = crate::dsp::Rng::new(0xC0FFEE ^ tracks.len() as u64 ^ (track.name.len() as u64) << 8);
+            for n in &mut notes {
+                n.start = (n.start + (rng.bipolar() * h.time) as f64).max(0.0);
+                n.velocity = (n.velocity + rng.bipolar() * h.velocity).clamp(0.05, 1.0);
+            }
+        }
         notes.sort_by(|a, b| a.start.total_cmp(&b.start));
         all_notes.push((track.name.as_str(), notes.clone()));
 

@@ -7,7 +7,7 @@ use crate::lexer::{Line, Token, lex};
 use crate::presets;
 use crate::model::*;
 
-const TOP_LEVEL: &[&str] = &["title", "tempo", "meter", "section", "instrument", "pattern", "track", "master"];
+const TOP_LEVEL: &[&str] = &["title", "tempo", "meter", "swing", "section", "instrument", "pattern", "track", "master"];
 const EPS: f64 = 1e-9;
 
 struct Block<'a> {
@@ -86,13 +86,15 @@ pub fn parse(source: &str) -> (Option<Song>, Vec<Diagnostic>) {
             tracks: Vec::new(),
             master: Master::default(),
             sections: Vec::new(),
+            swing: 0.5,
+            swing_grid: 1.0 / 16.0,
         },
     };
 
     // Globals first: patterns need the meter for bar checks regardless of order.
     for block in &blocks {
         let kw = &block.header.tokens[0];
-        if matches!(kw.text.as_str(), "title" | "tempo" | "meter") {
+        if matches!(kw.text.as_str(), "title" | "tempo" | "meter" | "swing") {
             p.global(block);
         }
     }
@@ -101,7 +103,7 @@ pub fn parse(source: &str) -> (Option<Song>, Vec<Diagnostic>) {
     for block in &blocks {
         let kw = &block.header.tokens[0];
         match kw.text.as_str() {
-            "title" | "tempo" | "meter" => {}
+            "title" | "tempo" | "meter" | "swing" => {}
             "section" => p.section(block),
             "instrument" => p.instrument(block),
             "pattern" => p.pattern(block),
@@ -176,6 +178,18 @@ impl Parser {
                     self.song.tempo = v;
                 }
             }
+            "swing" => {
+                if let Some(t) = self.arg(line, 1, "swing amount such as 0.58") {
+                    let (amount, grid) = self.swing_args(line, t);
+                    if let Some(a) = amount {
+                        self.song.swing = a;
+                    }
+                    if let Some(g) = grid {
+                        self.song.swing_grid = g;
+                    }
+                }
+                return;
+            }
             "meter" => {
                 if let Some(t) = self.arg(line, 1, "meter such as 4/4") {
                     let parsed = t
@@ -211,6 +225,22 @@ impl Parser {
             _ => self.err_hint(t.span, format!("invalid bar range '{}'", t.text), "write it like: section chorus bars=17-32"),
         }
         self.extra_tokens(line, 3);
+    }
+
+    /// `swing <amount> [grid=<step>]`, amount 0.5 (straight) to 0.75.
+    fn swing_args(&mut self, line: &Line, t: &Token) -> (Option<f32>, Option<Whole>) {
+        let amount = self.value::<f32>(t, &t.text, 0.5, 0.75);
+        let mut grid = None;
+        for (key, val, tok) in self.options(line, 2) {
+            match key {
+                "grid" => match parse_duration(val) {
+                    Some(d) if d > 0.0 => grid = Some(d),
+                    _ => self.err_hint(tok.span, format!("invalid grid '{val}'"), "use 1/16 (default) or 1/8"),
+                },
+                _ => self.unknown_option(tok, key, "swing", &["grid"]),
+            }
+        }
+        (amount, grid)
     }
 
     fn extra_tokens(&mut self, line: &Line, from: usize) {
@@ -314,7 +344,10 @@ impl Parser {
                             "voices" => set(&mut osc.voices, self.value::<f64>(tok, val, 1.0, 16.0).map(|v| v.round() as u32)),
                             "spread" => set(&mut osc.spread_cents, self.value(tok, val, 0.0, 100.0)),
                             "width" => set(&mut osc.width, self.value(tok, val, 0.0, 1.0)),
-                            _ => self.unknown_option(tok, key, "osc", &["level", "octave", "semi", "detune", "voices", "spread", "width"]),
+                            "fm" => set(&mut osc.fm_index, self.value(tok, val, 0.0, 30.0)),
+                            "fmratio" => set(&mut osc.fm_ratio, self.value(tok, val, 0.01, 32.0)),
+                            "fmenv" => set(&mut osc.fm_env, self.value(tok, val, 0.0, 30.0)),
+                            _ => self.unknown_option(tok, key, "osc", &["level", "octave", "semi", "detune", "voices", "spread", "width", "fm", "fmratio", "fmenv"]),
                         }
                     }
                     def.oscillators.push(osc);
@@ -966,6 +999,9 @@ impl Parser {
             reverb: 0.0,
             delay: 0.0,
             mute: false,
+            swing: None,
+            swing_grid: None,
+            humanize: None,
             layer: None,
             eq: None,
             chorus: None,
@@ -1005,6 +1041,24 @@ impl Parser {
                     self.extra_tokens(line, 2);
                 }
                 "mute" => track.mute = true,
+                "swing" => {
+                    if let Some(t) = self.arg(line, 1, "swing amount such as 0.58") {
+                        let (amount, grid) = self.swing_args(line, t);
+                        track.swing = amount;
+                        track.swing_grid = grid;
+                    }
+                }
+                "humanize" => {
+                    let mut h = Humanize { time: 0.006, velocity: 0.08 };
+                    for (key, val, tok) in self.options(line, 1) {
+                        match key {
+                            "time" => set(&mut h.time, self.seconds(tok, val)),
+                            "vel" => set(&mut h.velocity, self.value::<f32>(tok, val, 0.0, 127.0).map(|v| if v > 1.0 { v / 127.0 } else { v })),
+                            _ => self.unknown_option(tok, key, "humanize", &["time", "vel"]),
+                        }
+                    }
+                    track.humanize = Some(h);
+                }
                 "layer" => {
                     if let Some(t) = self.arg(line, 1, "layer name") {
                         track.layer = Some(t.text.clone());
@@ -1130,7 +1184,7 @@ impl Parser {
                     kw,
                     other,
                     "tracks",
-                    &["instrument", "audio", "layer", "gain", "pan", "reverb", "delay", "eq", "chorus", "sidechain", "sweep", "mute", "play", "rest", "at"],
+                    &["instrument", "audio", "layer", "gain", "pan", "reverb", "delay", "eq", "chorus", "sidechain", "sweep", "swing", "humanize", "mute", "play", "rest", "at"],
                 ),
             }
         }

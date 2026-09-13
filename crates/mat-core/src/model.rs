@@ -107,6 +107,12 @@ pub struct Oscillator {
     pub width: f32,
     /// Set for the JP-8000 style supersaw.
     pub supersaw: Option<SuperSaw>,
+    /// Phase modulation by a sine at `fm_ratio` times the pitch; `fm_index`
+    /// is the depth in radians and `fm_env` how much the filter envelope
+    /// scales it (classic FM plucks and bells).
+    pub fm_index: f32,
+    pub fm_ratio: f32,
+    pub fm_env: f32,
 }
 
 #[derive(Debug, Clone, Copy, Serialize)]
@@ -129,6 +135,9 @@ impl Default for Oscillator {
             spread_cents: 15.0,
             width: 0.8,
             supersaw: None,
+            fm_index: 0.0,
+            fm_ratio: 1.0,
+            fm_env: 0.0,
         }
     }
 }
@@ -370,6 +379,15 @@ impl Tb303Def {
     }
 }
 
+/// Random timing and velocity variation, per track.
+#[derive(Debug, Clone, Copy, Serialize)]
+pub struct Humanize {
+    /// Maximum timing offset in seconds (uniform, both directions).
+    pub time: f32,
+    /// Maximum velocity change, 0..1.
+    pub velocity: f32,
+}
+
 /// A linear parameter change over a range of bars.
 #[derive(Debug, Clone)]
 pub struct SweepDef {
@@ -484,6 +502,11 @@ pub struct Track {
     pub reverb: f32,
     pub delay: f32,
     pub mute: bool,
+    /// Swing amount 0.5..0.75 (0.5 = straight); overrides the song's.
+    pub swing: Option<f32>,
+    /// Grid the swing acts on, in whole notes (default 1/16).
+    pub swing_grid: Option<Whole>,
+    pub humanize: Option<Humanize>,
     /// Stem group for `mat render --stems`; defaults to the track name.
     pub layer: Option<String>,
     pub eq: Option<EqSettings>,
@@ -576,6 +599,9 @@ pub struct Song {
     pub tracks: Vec<Track>,
     pub master: Master,
     pub sections: Vec<Section>,
+    /// Song-wide swing (0.5 = straight) and its grid.
+    pub swing: f32,
+    pub swing_grid: Whole,
 }
 
 impl Song {

@@ -62,6 +62,7 @@ swift build -c release --package-path swift
 | `examples/acid.song` | TB-303 acid line with accents, slides and knob sweeps |
 | `examples/dream.song` | dream dance: Steinway piano with pedal, pads, string swells, house kit, all from presets (needs Logic content) |
 | `examples/undertow.song` | melodic techno: rumbling kick, rolling bass, hypnotic arp, bell-pluck hook, 303 bed (presets only) |
+| `examples/undertow-b.song` | the same track with different melodies: FM e-piano hook, glassy FM arp, bell counter line, swing |
 | `examples/neon.song` | K-pop: 808 trap verses, brass-stab chorus, chanted post-chorus hook (presets only) |
 
 ## Adaptive game music

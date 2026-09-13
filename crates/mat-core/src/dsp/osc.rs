@@ -35,7 +35,13 @@ impl Oscillator {
     /// `dt` is frequency / sample rate and must be below 0.5.
     #[inline]
     pub fn next(&mut self, wave: Waveform, dt: f32) -> f32 {
-        let t = self.phase;
+        self.next_pm(wave, dt, 0.0)
+    }
+
+    /// Like `next`, with a phase offset in cycles (phase modulation).
+    #[inline]
+    pub fn next_pm(&mut self, wave: Waveform, dt: f32, pm: f32) -> f32 {
+        let t = if pm == 0.0 { self.phase } else { (self.phase + pm).rem_euclid(1.0) };
         let out = match wave {
             Waveform::Sine => (t * TAU).sin(),
             Waveform::Saw => 2.0 * t - 1.0 - poly_blep(t, dt),

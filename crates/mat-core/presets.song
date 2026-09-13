@@ -271,3 +271,33 @@ preset pop master "Glue for pop: bright, punchy, wide"
   reverb size=0.75 decay=0.6 damping=0.4 predelay=20ms
   delay time=3/16 feedback=0.3 tone=4k
   limiter ceiling=-1
+
+preset fm-bass synth "FM bass: sine carrier with a decaying 1:1 modulator, growls on accents"
+  osc sine fm=1.2 fmratio=1 fmenv=4 level=0.9
+  osc sine octave=-1 level=0.5
+  filter lowpass cutoff=900 res=0.1 keytrack=0.5
+  amp attack=1ms decay=0.25 sustain=0.6 release=60ms
+  fenv attack=1ms decay=0.12 sustain=0.1 release=50ms
+
+preset fm-bell synth "FM bell: 3.5:1 modulator that decays, long release"
+  osc sine fm=0.6 fmratio=3.5 fmenv=5 level=0.7
+  osc sine octave=1 level=0.25
+  amp attack=1ms decay=1.6 sustain=0.1 release=1.2
+  fenv attack=1ms decay=0.9 sustain=0 release=0.5
+  drift 3
+
+preset fm-epiano synth "FM electric piano: soft tine with a bright attack"
+  osc sine fm=0.4 fmratio=14 fmenv=1.5 level=0.5
+  osc sine fm=0.5 fmratio=1 fmenv=1.2 level=0.7
+  osc sine octave=1 level=0.15
+  amp attack=2ms decay=1.2 sustain=0.3 release=0.5
+  fenv attack=1ms decay=0.35 sustain=0.1 release=0.3
+  lfo pan rate=0.8 depth=0.25
+  drift 3
+
+preset fm-pluck synth "Glassy FM pluck for arps"
+  osc sine fm=0.3 fmratio=2 fmenv=6 level=0.8
+  osc triangle octave=1 level=0.15
+  amp attack=1ms decay=0.3 sustain=0 release=0.2
+  fenv attack=1ms decay=0.15 sustain=0 release=0.1
+  drift 4

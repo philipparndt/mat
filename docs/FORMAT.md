@@ -109,6 +109,7 @@ instrument lead synth
 |---|---|
 | `osc <sine\|triangle\|saw\|square>` | `level` 0–4, `octave` ±4, `semi` ±24, `detune` cents, `voices` 1–16 (unison), `spread` cents, `width` 0–1 |
 | `osc supersaw` | JP-8000 style: `detune` 0–1 (0.5 ≈ classic trance), `mix` 0–1 (center vs. detuned saws), plus `level`, `octave`, `semi`, `width` |
+| `osc sine fm=… fmratio=… fmenv=…` | FM on any oscillator: a sine modulator at `fmratio` × pitch, `fm` index in radians, `fmenv` extra index that follows the filter envelope (bells, e-pianos, FM bass) |
 | `noise <level>` | 0–1 |
 | `filter <lowpass\|highpass\|bandpass>` | `cutoff` Hz (`1.2k` works), `res` 0–1, `env` octaves of filter-envelope sweep, `keytrack` 0–1, `drive` 0–1. Several `filter` lines chain in series; a line with the mode of an existing one replaces that stage (that's how you override a preset's filter); `filter off` removes them all |
 | `amp` / `fenv` | `attack` `decay` `release` in seconds (or `ms`), `sustain` 0–1 |
@@ -229,6 +230,16 @@ track melody
 ```
 
 `play` places patterns one after another. `at` and `rest` move the position.
+
+### Groove
+
+```
+swing 0.58                 # top level: every track; 0.5 = straight, 0.66 = triplet feel
+  swing 0.62 grid=1/8      # on a track: overrides the song; grid defaults to 1/16
+  humanize time=8ms vel=10 # random timing (± time) and velocity (± vel of 127) per note
+```
+
+Humanize is deterministic per track, so a render always sounds the same.
 
 ### Track effects
 

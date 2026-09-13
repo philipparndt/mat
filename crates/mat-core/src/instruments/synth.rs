@@ -21,6 +21,8 @@ struct UnisonVoice {
     gain_l: f32,
     gain_r: f32,
     highpass: Option<Biquad>,
+    /// Phase modulation: (index in radians, ratio, envelope amount, modulator phase).
+    fm: Option<(f32, f32, f32, f32)>,
 }
 
 /// Detune offsets of the seven saws, relative to the note frequency.
@@ -90,6 +92,7 @@ pub fn render_note(def: &SynthDef, note: &TimedNote, sweeps: &[Sweep], sample_ra
                     gain_r: gr * gain,
                     // Removes the aliasing-prone energy below the fundamental.
                     highpass: Some(Biquad::highpass(base_hz * base_ratio, std::f32::consts::FRAC_1_SQRT_2, sample_rate)),
+                    fm: None,
                 });
             }
             continue;
@@ -108,6 +111,7 @@ pub fn render_note(def: &SynthDef, note: &TimedNote, sweeps: &[Sweep], sample_ra
                 gain_l: gl * level,
                 gain_r: gr * level,
                 highpass: None,
+                fm: (osc.fm_index > 0.0 || osc.fm_env > 0.0).then_some((osc.fm_index, osc.fm_ratio, osc.fm_env, rng.unit())),
             });
         }
     }
@@ -184,9 +188,17 @@ pub fn render_note(def: &SynthDef, note: &TimedNote, sweeps: &[Sweep], sample_ra
         }
 
         let (mut l, mut r) = (0.0f32, 0.0f32);
+        let fe_now = filter_env.peek();
         for v in &mut voices {
             let dt = (hz * v.ratio / sample_rate).min(nyquist_dt);
-            let mut s = v.osc.next(v.wave, dt);
+            let pm = match &mut v.fm {
+                Some((index, ratio, env_amount, phase)) => {
+                    *phase = (*phase + dt * *ratio).rem_euclid(1.0);
+                    (*index + *env_amount * fe_now) * (TAU * *phase).sin() / TAU
+                }
+                None => 0.0,
+            };
+            let mut s = v.osc.next_pm(v.wave, dt, pm);
             if let Some(hp) = &mut v.highpass {
                 s = hp.process(s);
             }
