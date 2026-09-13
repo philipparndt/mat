@@ -1,6 +1,7 @@
-# Undertow B — the same track with different melodic material: a syncopated
-# e-piano hook instead of the sparse bell line, an 8th-note glassy FM arp
-# instead of the 16ths, a bell counter line, and a little swing. Original.
+# Undertow B — Undertow with different melodic material and a tighter arc:
+# dark beats first, the synth layers next, the melody only from the break on.
+# Syncopated e-piano hook, glassy 8th-note FM arp, bell counter line, swing,
+# drums keying a compressor on everything else. Original.
 # E minor, chord loop Em | Em | C | C | Em | Em | D | D.
 #
 # Built from presets only (`mat presets`); no external content needed.
@@ -9,16 +10,17 @@
 title "Undertow B"
 tempo 128
 meter 4/4
+
+section beats   bars=1-8
+section synth   bars=9-24
+section build   bars=25-32
+section drop    bars=33-48
+section break   bars=49-56
+section build2  bars=57-64
+section drop2   bars=65-96
+section outro   bars=97-104
 swing 0.54
 
-section intro   bars=1-16
-section groove  bars=17-32
-section build   bars=33-48
-section break   bars=49-64
-section drop    bars=65-96
-section break2  bars=97-112
-section drop2   bars=113-144
-section outro   bars=145-152
 
 # ------------------------------------------------------------ instruments
 
@@ -177,16 +179,23 @@ track drums
   reverb 0.05
   eq low=-2 lowfreq=70 high=+2 highfreq=7k
   comp threshold=-14 ratio=4 attack=6ms release=110ms makeup=4 mode=feedback
-  play intro_perc x8
-  play kick_hats x8
+  play kick_hats x4
+  play groove x4
   play groove x15
   play groove_fill
-  play groove_full x7
+  play groove_full x4
+  play roll_q x2
+  play roll_e
+  play roll_up
+  play groove_crash
+  play groove_full x6
   play groove_fill
-  play groove_full x7
+  play groove_crash
+  play groove_full x6
   play groove_fill
   play break_hit
-  play rest_bar x7
+  play rest_bar x3
+  play break_perc x4
   play break_perc x4
   play roll_q x2
   play roll_e
@@ -203,24 +212,8 @@ track drums
   play groove_crash
   play groove_full x6
   play groove_fill
-  play break_hit
-  play rest_bar x7
-  play break_perc x4
-  play roll_q x2
-  play roll_e
-  play roll_up
-  play groove_crash
-  play groove_full x6
-  play groove_fill
-  play groove_crash
-  play groove_full x6
-  play groove_fill
-  play groove_crash
-  play groove_full x6
-  play groove_fill
-  play groove_crash
-  play groove_full x6
-  play groove_fill
+  play groove x4
+  play kick_hats x3
   play break_hit
 
 track rumble
@@ -228,12 +221,13 @@ track rumble
   layer rumble
   gain +2
   sidechain drums depth=0.95 attack=2ms release=0.12
-  at 9
-  play rumble x40
+  play rumble x32
+  at 33
+  play rumble x16
   at 65
   play rumble x32
-  at 113
-  play rumble x32
+  at 97
+  play rumble x8
 
 track bass
   instrument bass
@@ -242,11 +236,11 @@ track bass
   eq lowcut=30
   sidechain drums depth=0.85 attack=3ms release=0.22
   at 9
-  play bass x5
+  play bass x3
+  play bass x2
   at 65
   play bass x4
-  at 113
-  play bass x4
+  play bass
 
 track arp
   instrument arp
@@ -258,19 +252,19 @@ track arp
   eq lowcut=250 high=+2 highfreq=4k
   chorus mix=0.25
   sidechain drums depth=0.5 release=0.2
-  sweep cutoff from=350 to=700 bars=1-32
-  sweep cutoff from=700 to=3500 bars=33-48
-  sweep cutoff from=900 to=1200 bars=49-64
-  sweep cutoff from=1200 to=4000 bars=65-96
-  sweep cutoff from=700 to=4500 bars=97-112
-  sweep cutoff from=4500 to=5000 bars=113-144
-  play arp x2 vel=0.6
+  sweep cutoff from=300 to=900 bars=9-24
+  sweep cutoff from=900 to=3500 bars=25-32
+  sweep cutoff from=3500 to=3500 bars=33-48
+  sweep cutoff from=800 to=1500 bars=49-64
+  sweep cutoff from=4000 to=4000 bars=65-96
+  sweep cutoff from=4000 to=600 bars=97-104
+  at 9
   play arp x2
+  play arp
   play arp x2
   play arp x2 vel=0.7
   play arp x4
-  play arp x2 vel=0.7
-  play arp x4
+  play arp vel=0.6
 
 track pad
   instrument pad
@@ -280,14 +274,14 @@ track pad
   eq lowcut=150 high=+2 highfreq=5k
   chorus mix=0.5
   sidechain drums depth=0.75 release=0.3
-  sweep cutoff from=450 to=800 bars=1-32
-  play chords x4
+  sweep cutoff from=450 to=800 bars=17-32
+  at 17
   play chords x2
   play chords_high x2
-  play chords x4
+  play chords x2
+  play chords x2
   play chords_high x2
-  play chords x4
-  play chords_high
+  play chords
 
 track lead
   instrument lead
@@ -295,7 +289,7 @@ track lead
   gain -8
   pan 0.1
   reverb 0.45
-  delay 0.5
+  delay 0.4
   eq lowcut=300 high=+3 highfreq=5k
   chorus mix=0.3
   humanize time=6ms vel=8
@@ -303,31 +297,22 @@ track lead
   at 49
   play hook
   play hook_var
-  at 73
   play hook
   play hook_var
   play hook
-  at 97
-  play hook
   play hook_var
-  at 121
-  play hook
-  play hook_var
-  play hook
 
 track counter
   instrument counter
   layer lead
   gain -6
   pan -0.25
-  reverb 0.4
-  delay 0.3
+  reverb 0.5
+  delay 0.4
   eq lowcut=400 high=+2 highfreq=5k
   sidechain drums depth=0.35
-  at 73
-  play counter x3
-  at 121
-  play counter x3
+  at 81
+  play counter x2
 
 track acid
   instrument acid
@@ -338,23 +323,26 @@ track acid
   delay 0.3
   eq lowcut=80 highcut=4k
   sidechain drums depth=0.5 release=0.15
-  sweep cutoff from=0.12 to=0.22 bars=81-96
-  sweep cutoff from=0.15 to=0.3 bars=129-144
-  at 81
+  sweep cutoff from=0.1 to=0.22 bars=9-32
+  sweep cutoff from=0.2 to=0.3 bars=33-48
+  sweep cutoff from=0.25 to=0.42 bars=65-96
+  at 9
+  play acid x3
+  at 33
   play acid x2
-  at 129
-  play acid x2
+  at 65
+  play acid x4
 
 track riser
   instrument riser
   layer fx
   gain +2
   reverb 0.4
+  sweep cutoff from=200 to=5000 bars=25-32
   sweep cutoff from=200 to=5000 bars=57-64
-  sweep cutoff from=200 to=5000 bars=105-112
-  at 57
+  at 25
   play riser_note
-  at 105
+  at 57
   play riser_note
 
 track impact
@@ -362,15 +350,13 @@ track impact
   layer fx
   gain -4
   reverb 0.6
+  at 33
+  play impact_note
   at 49
   play impact_note
   at 65
   play impact_note
   at 97
-  play impact_note
-  at 113
-  play impact_note
-  at 145
   play impact_note
 
 master preset techno
