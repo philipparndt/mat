@@ -24,6 +24,7 @@ section outro    bars=129-136
 
 instrument kit preset organic-kit
 instrument rumble preset rumble
+instrument shaker preset tabla-kit
 
 instrument bass clap
   plugin "Surge XT"
@@ -182,6 +183,10 @@ pattern roll_up grid=1/16
   snare 7777888899999999
   kick  X.......X.......
 
+pattern shaker grid=1/16
+  hat     x.o.x.o.x.o.x.o.
+  openhat ...x.......x....
+
 pattern break_hit grid=1/16
   kick  X...............
   crash X...............
@@ -197,9 +202,9 @@ pattern riser_note
 track drums
   instrument kit
   layer drums
-  gain -15
+  gain -12
   reverb 0.06
-  eq low=-2 lowfreq=70 high=+2 highfreq=7k
+  eq low=-1 lowfreq=70 mid=+2 midfreq=4k high=+5 highfreq=8k
   comp threshold=-14 ratio=3 attack=8ms release=120ms makeup=3 mode=feedback
   play intro_perc x8
   play light x8
@@ -243,10 +248,25 @@ track drums
   play intro_perc x3
   play break_hit
 
+track shaker
+  instrument shaker
+  layer drums
+  gain -14
+  pan 0.25
+  reverb 0.1
+  eq lowcut=800 high=+4 highfreq=8k
+  humanize time=5ms vel=12
+  at 17
+  play shaker x24
+  at 41
+  play shaker x32
+  at 97
+  play shaker x32
+
 track rumble
   instrument rumble
   layer rumble
-  gain +1
+  gain +3
   sidechain drums depth=0.95 attack=2ms release=0.12
   at 17
   play rumble x24
@@ -258,7 +278,7 @@ track rumble
 track bass
   instrument bass
   layer bass
-  gain -11
+  gain -6
   eq lowcut=30 highcut=6k
   sidechain drums depth=0.8 attack=3ms release=0.22
   at 17
@@ -271,7 +291,7 @@ track bass
 track sub
   instrument sub
   layer bass
-  gain -11
+  gain -6
   sidechain drums depth=0.9 release=0.2
   at 41
   play sub x4
@@ -281,11 +301,11 @@ track sub
 track arp
   instrument arp
   layer arp
-  gain -6
+  gain -8
   pan -0.15
   reverb 0.3
   delay 0.4
-  eq lowcut=250 high=+2 highfreq=4k
+  eq lowcut=400 mid=-3 midfreq=800 high=+2 highfreq=5k
   humanize time=4ms vel=6
   sidechain drums depth=0.5 release=0.2
   sweep gain from=-12 to=0 bars=17-32
@@ -300,7 +320,7 @@ track arp
 track mallet
   instrument mallet
   layer mallet
-  gain -6
+  gain -8
   pan 0.2
   reverb 0.5
   delay 0.55
@@ -320,9 +340,9 @@ track mallet
 track pad
   instrument pad
   layer pad
-  gain -2
+  gain -6
   reverb 0.6
-  eq lowcut=150 high=+2 highfreq=5k
+  eq lowcut=250 mid=-4 midfreq=600 high=+1 highfreq=5k
   chorus mix=0.45
   phaser rate=0.08 depth=0.6 stages=6 feedback=0.3 mix=0.35
   sidechain drums depth=0.7 release=0.3
@@ -339,7 +359,7 @@ track pad
 track choir
   instrument choir
   layer pad
-  gain -12
+  gain -14
   pan -0.2
   reverb 0.7
   eq lowcut=300
@@ -352,7 +372,7 @@ track choir
 track lead
   instrument lead
   layer lead
-  gain -5
+  gain -7
   pan 0.1
   reverb 0.45
   delay 0.35
@@ -406,7 +426,11 @@ track impact
   play impact_note
 
 master preset techno
-  gain 2
-  sidechain drums threshold=-26 ratio=6 attack=1ms release=140ms darken=1.5
+  gain 9
+  width 0.85
+  saturation 0.4
+  comp threshold=-20 ratio=3.5 attack=8ms release=120ms makeup=3
+  limiter ceiling=-0.3 release=60ms
+  sidechain drums threshold=-32 ratio=8 attack=1ms release=110ms darken=1.5
   reverb size=0.9 decay=0.85 damping=0.3 predelay=30ms shimmer=0.35 lowcut=250 highcut=9k
   delay time=3/16 feedback=0.45 tone=3.5k mod=3ms rate=0.3
