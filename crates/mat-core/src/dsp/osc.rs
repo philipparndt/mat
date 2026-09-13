@@ -41,11 +41,17 @@ impl Oscillator {
     /// Like `next`, with a phase offset in cycles (phase modulation).
     #[inline]
     pub fn next_pm(&mut self, wave: Waveform, dt: f32, pm: f32) -> f32 {
+        self.next_pw(wave, dt, pm, 0.5)
+    }
+
+    /// Like `next_pm`, with a pulse width for square waves (0.05..0.95).
+    #[inline]
+    pub fn next_pw(&mut self, wave: Waveform, dt: f32, pm: f32, pw: f32) -> f32 {
         let t = if pm == 0.0 { self.phase } else { (self.phase + pm).rem_euclid(1.0) };
         let out = match wave {
             Waveform::Sine => (t * TAU).sin(),
             Waveform::Saw => 2.0 * t - 1.0 - poly_blep(t, dt),
-            Waveform::Square => square(t, dt),
+            Waveform::Square => pulse(t, dt, pw),
             Waveform::Triangle => {
                 self.tri = dt * square(t, dt) + (1.0 - dt) * self.tri;
                 self.tri * 4.0
@@ -57,6 +63,14 @@ impl Oscillator {
         }
         out
     }
+}
+
+/// Band-limited pulse with width `pw`, centered so it has no DC offset.
+#[inline]
+fn pulse(t: f32, dt: f32, pw: f32) -> f32 {
+    let pw = pw.clamp(0.05, 0.95);
+    let naive = if t < pw { 1.0 } else { -1.0 };
+    naive + poly_blep(t, dt) - poly_blep((t + 1.0 - pw) % 1.0, dt) - (2.0 * pw - 1.0)
 }
 
 #[inline]

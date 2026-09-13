@@ -152,6 +152,8 @@ pub struct Oscillator {
     pub fm_index: f32,
     pub fm_ratio: f32,
     pub fm_env: f32,
+    /// Pulse width of square waves, 0.05..0.95 (0.5 = symmetric).
+    pub pw: f32,
 }
 
 #[derive(Debug, Clone, Copy, Serialize)]
@@ -177,6 +179,7 @@ impl Default for Oscillator {
             fm_index: 0.0,
             fm_ratio: 1.0,
             fm_env: 0.0,
+            pw: 0.5,
         }
     }
 }
@@ -230,6 +233,10 @@ pub enum LfoTarget {
     Pan,
     Amp,
     Width,
+    /// Pulse width, depth 0..0.45.
+    Pw,
+    /// FM index, depth in radians.
+    Fm,
 }
 
 #[derive(Debug, Clone, Copy, Serialize)]
@@ -256,6 +263,10 @@ pub struct SynthDef {
     pub lfos: Vec<Lfo>,
     /// Random detune per note in cents, like drifting analog oscillators.
     pub drift_cents: f32,
+    /// Portamento: seconds to glide from the previous note's pitch (0 = off).
+    pub glide: f32,
+    /// Pitch envelope: starts `depth` semitones away and decays to the note.
+    pub pitch_env: Option<(f32, f32)>,
 }
 
 impl Default for SynthDef {
@@ -269,6 +280,8 @@ impl Default for SynthDef {
             vibrato: Vibrato::default(),
             lfos: Vec::new(),
             drift_cents: 0.0,
+            glide: 0.0,
+            pitch_env: None,
         }
     }
 }
@@ -499,6 +512,15 @@ impl Default for EqSettings {
 }
 
 #[derive(Debug, Clone, Serialize)]
+pub struct PhaserSettings {
+    pub rate_hz: f32,
+    pub depth: f32,
+    pub stages: u32,
+    pub feedback: f32,
+    pub mix: f32,
+}
+
+#[derive(Debug, Clone, Serialize)]
 pub struct ChorusSettings {
     pub mix: f32,
     pub rate_hz: f32,
@@ -569,6 +591,7 @@ pub struct Track {
     pub swing_grid: Option<Whole>,
     pub humanize: Option<Humanize>,
     pub comp: Option<CompSettings>,
+    pub phaser: Option<PhaserSettings>,
     /// Stem group for `mat render --stems`; defaults to the track name.
     pub layer: Option<String>,
     pub eq: Option<EqSettings>,
@@ -586,6 +609,11 @@ pub struct ReverbSettings {
     pub decay: f32,
     pub damping: f32,
     pub predelay_ms: f32,
+    /// Octave-up feedback into the tail, 0..1.
+    pub shimmer: f32,
+    /// Filters on the wet signal (0 = off).
+    pub lowcut_hz: f32,
+    pub highcut_hz: f32,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -594,6 +622,9 @@ pub struct DelaySettings {
     pub time: Whole,
     pub feedback: f32,
     pub tone_hz: f32,
+    /// Delay-time modulation in ms and its rate (chorused echoes).
+    pub mod_ms: f32,
+    pub mod_rate_hz: f32,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -653,8 +684,8 @@ impl Default for Master {
             width: 1.0,
             comp: None,
             saturation: 0.0,
-            reverb: ReverbSettings { enabled: true, size: 0.7, decay: 0.7, damping: 0.4, predelay_ms: 20.0 },
-            delay: DelaySettings { enabled: true, time: 3.0 / 16.0, feedback: 0.35, tone_hz: 3000.0 },
+            reverb: ReverbSettings { enabled: true, size: 0.7, decay: 0.7, damping: 0.4, predelay_ms: 20.0, shimmer: 0.0, lowcut_hz: 0.0, highcut_hz: 0.0 },
+            delay: DelaySettings { enabled: true, time: 3.0 / 16.0, feedback: 0.35, tone_hz: 3000.0, mod_ms: 0.0, mod_rate_hz: 0.5 },
             limiter: LimiterSettings { enabled: true, ceiling_db: -1.0, release_ms: 80.0 },
         }
     }

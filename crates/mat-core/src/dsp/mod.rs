@@ -8,6 +8,7 @@ pub mod envelope;
 pub mod filter;
 pub mod limiter;
 pub mod osc;
+pub mod phaser;
 pub mod reverb;
 
 pub fn db_to_gain(db: f32) -> f32 {

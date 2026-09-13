@@ -348,10 +348,11 @@ impl Parser {
                             "voices" => set(&mut osc.voices, self.value::<f64>(tok, val, 1.0, 16.0).map(|v| v.round() as u32)),
                             "spread" => set(&mut osc.spread_cents, self.value(tok, val, 0.0, 100.0)),
                             "width" => set(&mut osc.width, self.value(tok, val, 0.0, 1.0)),
+                            "pw" => set(&mut osc.pw, self.value(tok, val, 0.05, 0.95)),
                             "fm" => set(&mut osc.fm_index, self.value(tok, val, 0.0, 30.0)),
                             "fmratio" => set(&mut osc.fm_ratio, self.value(tok, val, 0.01, 32.0)),
                             "fmenv" => set(&mut osc.fm_env, self.value(tok, val, 0.0, 30.0)),
-                            _ => self.unknown_option(tok, key, "osc", &["level", "octave", "semi", "detune", "voices", "spread", "width", "fm", "fmratio", "fmenv"]),
+                            _ => self.unknown_option(tok, key, "osc", &["level", "octave", "semi", "detune", "voices", "spread", "width", "pw", "fm", "fmratio", "fmenv"]),
                         }
                     }
                     def.oscillators.push(osc);
@@ -424,8 +425,10 @@ impl Parser {
                         "pan" => LfoTarget::Pan,
                         "amp" => LfoTarget::Amp,
                         "width" => LfoTarget::Width,
+                        "pw" => LfoTarget::Pw,
+                        "fm" => LfoTarget::Fm,
                         other => {
-                            self.err_hint(tt.span, format!("unknown lfo target '{other}'"), "targets: filter, pitch, pan, amp, width");
+                            self.err_hint(tt.span, format!("unknown lfo target '{other}'"), "targets: filter, pitch, pan, amp, width, pw, fm");
                             continue;
                         }
                     };
@@ -447,6 +450,23 @@ impl Parser {
                     }
                     self.extra_tokens(line, 2);
                 }
+                "glide" => {
+                    if let Some(t) = self.arg(line, 1, "glide time such as 80ms") {
+                        set(&mut def.glide, self.seconds(t, &t.text));
+                    }
+                    self.extra_tokens(line, 2);
+                }
+                "penv" => {
+                    let (mut depth, mut decay) = (12.0f32, 0.08f32);
+                    for (key, val, tok) in self.options(line, 1) {
+                        match key {
+                            "depth" => set(&mut depth, self.value(tok, val, -48.0, 48.0)),
+                            "decay" => set(&mut decay, self.seconds(tok, val)),
+                            _ => self.unknown_option(tok, key, "penv", &["depth", "decay"]),
+                        }
+                    }
+                    def.pitch_env = Some((depth, decay));
+                }
                 "vibrato" => {
                     for (key, val, tok) in self.options(line, 1) {
                         let v = &mut def.vibrato;
@@ -459,7 +479,7 @@ impl Parser {
                     }
                 }
                 other => {
-                    const KW: &[&str] = &["osc", "noise", "filter", "amp", "fenv", "vibrato", "lfo", "drift"];
+                    const KW: &[&str] = &["osc", "noise", "filter", "amp", "fenv", "vibrato", "lfo", "drift", "glide", "penv"];
                     self.unknown_keyword(kw, other, "synth instruments", KW);
                 }
             }
@@ -1084,6 +1104,7 @@ impl Parser {
             swing_grid: None,
             humanize: None,
             comp: None,
+            phaser: None,
             layer: None,
             eq: None,
             chorus: None,
@@ -1160,6 +1181,20 @@ impl Parser {
                 }
                 "eq" => track.eq = Some(self.eq_options(line)),
                 "comp" => track.comp = self.comp_options(line),
+                "phaser" => {
+                    let mut ph = PhaserSettings { rate_hz: 0.3, depth: 0.7, stages: 6, feedback: 0.4, mix: 0.5 };
+                    for (key, val, tok) in self.options(line, 1) {
+                        match key {
+                            "rate" => set(&mut ph.rate_hz, self.value(tok, val, 0.01, 20.0)),
+                            "depth" => set(&mut ph.depth, self.value(tok, val, 0.0, 1.0)),
+                            "stages" => set(&mut ph.stages, self.value::<f64>(tok, val, 2.0, 12.0).map(|v| v.round() as u32)),
+                            "feedback" => set(&mut ph.feedback, self.value(tok, val, 0.0, 0.9)),
+                            "mix" => set(&mut ph.mix, self.value(tok, val, 0.0, 1.0)),
+                            _ => self.unknown_option(tok, key, "phaser", &["rate", "depth", "stages", "feedback", "mix"]),
+                        }
+                    }
+                    track.phaser = Some(ph);
+                }
                 "chorus" => {
                     let mut chorus = ChorusSettings::default();
                     for (key, val, tok) in self.options(line, 1) {
@@ -1267,7 +1302,7 @@ impl Parser {
                     kw,
                     other,
                     "tracks",
-                    &["instrument", "audio", "layer", "gain", "pan", "reverb", "delay", "eq", "comp", "chorus", "sidechain", "sweep", "swing", "humanize", "mute", "play", "rest", "at"],
+                    &["instrument", "audio", "layer", "gain", "pan", "reverb", "delay", "eq", "comp", "chorus", "phaser", "sidechain", "sweep", "swing", "humanize", "mute", "play", "rest", "at"],
                 ),
             }
         }
@@ -1356,7 +1391,10 @@ impl Parser {
                             "decay" => set(&mut r.decay, self.value(tok, val, 0.0, 1.0)),
                             "damping" => set(&mut r.damping, self.value(tok, val, 0.0, 1.0)),
                             "predelay" => set(&mut r.predelay_ms, self.seconds(tok, val).map(|s| s * 1000.0)),
-                            _ => self.unknown_option(tok, key, "reverb", &["size", "decay", "damping", "predelay"]),
+                            "shimmer" => set(&mut r.shimmer, self.value(tok, val, 0.0, 1.0)),
+                            "lowcut" => set(&mut r.lowcut_hz, self.hz(tok, val)),
+                            "highcut" => set(&mut r.highcut_hz, self.hz(tok, val)),
+                            _ => self.unknown_option(tok, key, "reverb", &["size", "decay", "damping", "predelay", "shimmer", "lowcut", "highcut"]),
                         }
                     }
                 }
@@ -1371,7 +1409,9 @@ impl Parser {
                             },
                             "feedback" => set(&mut d.feedback, self.value(tok, val, 0.0, 0.95)),
                             "tone" => set(&mut d.tone_hz, self.hz(tok, val)),
-                            _ => self.unknown_option(tok, key, "delay", &["time", "feedback", "tone"]),
+                            "mod" => set(&mut d.mod_ms, self.seconds(tok, val).map(|s| (s * 1000.0).min(20.0))),
+                            "rate" => set(&mut d.mod_rate_hz, self.value(tok, val, 0.01, 10.0)),
+                            _ => self.unknown_option(tok, key, "delay", &["time", "feedback", "tone", "mod", "rate"]),
                         }
                     }
                 }

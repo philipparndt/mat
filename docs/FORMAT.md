@@ -110,11 +110,14 @@ instrument lead synth
 | `osc <sine\|triangle\|saw\|square>` | `level` 0–4, `octave` ±4, `semi` ±24, `detune` cents, `voices` 1–16 (unison), `spread` cents, `width` 0–1 |
 | `osc supersaw` | JP-8000 style: `detune` 0–1 (0.5 ≈ classic trance), `mix` 0–1 (center vs. detuned saws), plus `level`, `octave`, `semi`, `width` |
 | `osc sine fm=… fmratio=… fmenv=…` | FM on any oscillator: a sine modulator at `fmratio` × pitch, `fm` index in radians, `fmenv` extra index that follows the filter envelope (bells, e-pianos, FM bass) |
+| `osc square pw=0.2` | pulse width 0.05–0.95; modulate it with `lfo pw` |
 | `noise <level>` | 0–1 |
 | `filter <lowpass\|highpass\|bandpass>` | `cutoff` Hz (`1.2k` works), `res` 0–1, `env` octaves of filter-envelope sweep, `keytrack` 0–1, `drive` 0–1. Several `filter` lines chain in series; a line with the mode of an existing one replaces that stage (that's how you override a preset's filter); `filter off` removes them all |
 | `amp` / `fenv` | `attack` `decay` `release` in seconds (or `ms`), `sustain` 0–1 |
 | `vibrato` | `rate` Hz, `depth` cents, `delay` seconds |
-| `lfo <filter\|pitch\|pan\|amp\|width>` | `rate` Hz, `depth` (filter: octaves, pitch: cents, others 0–1), `fade` seconds, `phase` 0–1 (random per note if omitted); one line per LFO |
+| `lfo <filter\|pitch\|pan\|amp\|width\|pw\|fm>` | `rate` Hz, `depth` (filter: octaves, pitch: cents, pw: 0–0.45, fm: radians, others 0–1), `fade` seconds, `phase` 0–1 (random per note if omitted); one line per LFO |
+| `glide <time>` | portamento from the previous note's pitch |
+| `penv depth=12 decay=80ms` | pitch envelope: starts `depth` semitones away and decays to the note |
 | `drift <cents>` | random detune per note, like drifting analog oscillators |
 
 ### `drums`: synthesized drum kit
@@ -270,6 +273,7 @@ Humanize is deterministic per track, so a render always sounds the same.
   eq lowcut=150 low=-2 lowfreq=200 mid=+1 midfreq=1k high=+3 highfreq=6k highcut=16k
   comp threshold=-12 ratio=4 attack=5ms release=120ms makeup=3 mode=feedback
   chorus mix=0.5 rate=0.7 depth=4ms
+  phaser rate=0.3 depth=0.7 stages=6 feedback=0.4 mix=0.5
   sidechain drums depth=0.8 attack=5ms release=250ms on=kick
 ```
 
@@ -283,7 +287,7 @@ A sweep moves through its bars and then holds the end value.
 
 `sidechain <track>` ducks this track on every hit of another track: the kick
 if that track has one, or the drum named with `on=`. A muted track still triggers,
-so a silent "ghost kick" track works too. The order is EQ, compressor, chorus, ducking,
+so a silent "ghost kick" track works too. The order is EQ, compressor, chorus, phaser, ducking,
 then gain, pan and the sends. `comp` on a track is the same compressor as on the
 master; `mode=feedback` detects after the gain stage (gentler, pumps musically),
 the default is feedforward.
@@ -312,8 +316,8 @@ master
                                                         # lowpass by that many octaves per 12 dB of reduction
   eq high=+1.5 highfreq=9k                              # same options as a track eq
   width 1.15                                            # stereo width: 0 mono, 1 as mixed, up to 2
-  reverb size=0.8 decay=0.7 damping=0.4 predelay=20ms   # or: reverb off
-  delay time=3/16 feedback=0.35 tone=3k                 # time is a note value
+  reverb size=0.8 decay=0.7 damping=0.4 predelay=20ms shimmer=0.3 lowcut=200 highcut=8k   # or: reverb off
+  delay time=3/16 feedback=0.35 tone=3k mod=3ms rate=0.4   # time is a note value; mod/rate chorus the echoes
   saturation 0.3                                        # tape-style, 0..1
   comp threshold=-14 ratio=3 attack=10ms release=150ms makeup=2   # bus compressor, or: comp off
   limiter ceiling=-1 release=80ms                       # or: limiter off

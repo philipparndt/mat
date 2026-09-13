@@ -74,6 +74,7 @@ pub struct TimelineTrack {
     pub eq: Option<EqSettings>,
     pub comp: Option<CompSettings>,
     pub chorus: Option<ChorusSettings>,
+    pub phaser: Option<PhaserSettings>,
     pub duck: Option<Duck>,
     pub sweeps: Vec<Sweep>,
     pub notes: Vec<TimedNote>,
@@ -258,6 +259,7 @@ pub fn arrange(song: &Song) -> Result<Timeline, Vec<Diagnostic>> {
             eq: track.eq.clone(),
             comp: track.comp.clone(),
             chorus: track.chorus.clone(),
+            phaser: track.phaser.clone(),
             duck: None,
             sweeps: track
                 .sweeps

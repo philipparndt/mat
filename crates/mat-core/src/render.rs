@@ -199,6 +199,9 @@ pub fn render(timeline: &Timeline, sample_rate: u32, mut stems: HashMap<usize, S
         if let Some(chorus) = &track.chorus {
             apply_chorus(chorus, &mut left, &mut right, sr);
         }
+        if let Some(ph) = &track.phaser {
+            crate::dsp::phaser::apply_phaser(ph, &mut left, &mut right, sr);
+        }
         if let Some(duck) = &track.duck {
             apply_duck(duck, start, &mut left, &mut right, sr);
         }
@@ -250,6 +253,7 @@ pub fn render(timeline: &Timeline, sample_rate: u32, mut stems: HashMap<usize, S
     let mut wet = [vec![0.0f32; len], vec![0.0f32; len]];
     if master.delay.enabled {
         let mut delay = PingPongDelay::new(timeline.delay_seconds, master.delay.feedback, master.delay.tone_hz, sr);
+        delay.set_modulation(master.delay.mod_ms, master.delay.mod_rate_hz);
         let [wl, wr] = &mut wet;
         delay.process(&delay_bus[0], &delay_bus[1], wl, wr);
         for ch in 0..2 {
@@ -324,7 +328,15 @@ fn render_track(track: &TimelineTrack, track_index: usize, sr: f32) -> Option<Re
                 .notes
                 .par_iter()
                 .enumerate()
-                .map(|(i, note)| synth::render_note(def, note, &track.sweeps, sr, seed_base + i as u64))
+                .map(|(i, note)| {
+                    // Portamento glides from the last note that started before this one.
+                    let from = if def.glide > 0.0 {
+                        track.notes[..i].iter().rev().find(|p| p.start < note.start - 1e-6).map(|p| p.midi)
+                    } else {
+                        None
+                    };
+                    synth::render_note_from(def, note, from, &track.sweeps, sr, seed_base + i as u64)
+                })
                 .collect(),
         )),
         InstrumentKind::Drums(kit) => Some(Ok(

@@ -20,6 +20,7 @@ struct UnisonVoice {
     ratio: f32,
     gain_l: f32,
     gain_r: f32,
+    pw: f32,
     highpass: Option<Biquad>,
     /// Phase modulation: (index in radians, ratio, envelope amount, modulator phase).
     fm: Option<(f32, f32, f32, f32)>,
@@ -63,6 +64,11 @@ fn sweep_value(sweeps: &[Sweep], param: &str, t: f64) -> Option<f32> {
 }
 
 pub fn render_note(def: &SynthDef, note: &TimedNote, sweeps: &[Sweep], sample_rate: f32, seed: u64) -> StereoClip {
+    render_note_from(def, note, None, sweeps, sample_rate, seed)
+}
+
+/// `glide_from` is the previous note's pitch for portamento.
+pub fn render_note_from(def: &SynthDef, note: &TimedNote, glide_from: Option<f32>, sweeps: &[Sweep], sample_rate: f32, seed: u64) -> StereoClip {
     let mut rng = Rng::new(seed);
     let offset = (note.start * sample_rate as f64).round() as usize;
     let note_off = ((note.duration * sample_rate as f64).round() as usize).max(1);
@@ -90,6 +96,7 @@ pub fn render_note(def: &SynthDef, note: &TimedNote, sweeps: &[Sweep], sample_ra
                     ratio: base_ratio * (1.0 + offset * depth),
                     gain_l: gl * gain,
                     gain_r: gr * gain,
+                    pw: 0.5,
                     // Removes the aliasing-prone energy below the fundamental.
                     highpass: Some(Biquad::highpass(base_hz * base_ratio, std::f32::consts::FRAC_1_SQRT_2, sample_rate)),
                     fm: None,
@@ -110,6 +117,7 @@ pub fn render_note(def: &SynthDef, note: &TimedNote, sweeps: &[Sweep], sample_ra
                 ratio: 2f32.powf(semis / 12.0),
                 gain_l: gl * level,
                 gain_r: gr * level,
+                pw: osc.pw,
                 highpass: None,
                 fm: (osc.fm_index > 0.0 || osc.fm_env > 0.0).then_some((osc.fm_index, osc.fm_ratio, osc.fm_env, rng.unit())),
             });
@@ -166,7 +174,15 @@ pub fn render_note(def: &SynthDef, note: &TimedNote, sweeps: &[Sweep], sample_ra
         let t = i as f32 / sample_rate;
 
         let mut hz = base_hz;
-        let (mut lfo_filter, mut lfo_pitch, mut lfo_pan, mut lfo_amp, mut lfo_width) = (0.0f32, 0.0f32, 0.0f32, 0.0f32, 0.0f32);
+        // Portamento from the previous note, and the pitch envelope.
+        if let (Some(from), true) = (glide_from, def.glide > 0.0) {
+            let semis = (from - note.midi) * (-3.0 * t / def.glide).exp();
+            hz *= 2f32.powf(semis / 12.0);
+        }
+        if let Some((depth, decay)) = def.pitch_env {
+            hz *= 2f32.powf(depth * (-4.6 * t / decay.max(0.001)).exp() / 12.0);
+        }
+        let (mut lfo_filter, mut lfo_pitch, mut lfo_pan, mut lfo_amp, mut lfo_width, mut lfo_pw, mut lfo_fm) = (0.0f32, 0.0f32, 0.0f32, 0.0f32, 0.0f32, 0.0f32, 0.0f32);
         for (l, phase) in &lfos {
             let fade = if l.fade_in > 0.0 { (t / l.fade_in).min(1.0) } else { 1.0 };
             let v = (TAU * (l.rate_hz * t + phase)).sin() * l.depth * fade;
@@ -176,6 +192,8 @@ pub fn render_note(def: &SynthDef, note: &TimedNote, sweeps: &[Sweep], sample_ra
                 LfoTarget::Pan => lfo_pan += v,
                 LfoTarget::Amp => lfo_amp += v,
                 LfoTarget::Width => lfo_width += v,
+                LfoTarget::Pw => lfo_pw += v,
+                LfoTarget::Fm => lfo_fm += v,
             }
         }
         if lfo_pitch != 0.0 {
@@ -194,11 +212,11 @@ pub fn render_note(def: &SynthDef, note: &TimedNote, sweeps: &[Sweep], sample_ra
             let pm = match &mut v.fm {
                 Some((index, ratio, env_amount, phase)) => {
                     *phase = (*phase + dt * *ratio).rem_euclid(1.0);
-                    (*index + *env_amount * fe_now) * (TAU * *phase).sin() / TAU
+                    (*index + *env_amount * fe_now + lfo_fm).max(0.0) * (TAU * *phase).sin() / TAU
                 }
                 None => 0.0,
             };
-            let mut s = v.osc.next_pm(v.wave, dt, pm);
+            let mut s = v.osc.next_pw(v.wave, dt, pm, v.pw + lfo_pw);
             if let Some(hp) = &mut v.highpass {
                 s = hp.process(s);
             }

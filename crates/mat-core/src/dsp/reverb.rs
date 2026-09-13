@@ -80,6 +80,49 @@ pub struct PlateReverb {
     lfo_step: f32,
     excursion: f32,
     scale: f32,
+    shimmer: f32,
+    shifter: OctaveShifter,
+    wet_lowcut: Option<[OnePole; 2]>,
+    wet_highcut: Option<[OnePole; 2]>,
+    shimmer_feed: f32,
+}
+
+/// Simple octave-up pitch shifter: two grains read a circular buffer at
+/// double speed, crossfaded with triangular windows.
+struct OctaveShifter {
+    buf: Vec<f32>,
+    write: usize,
+    read: f32,
+    grain: usize,
+}
+
+impl OctaveShifter {
+    fn new(sample_rate: f32) -> Self {
+        let grain = (0.05 * sample_rate) as usize;
+        Self { buf: vec![0.0; grain * 4], write: 0, read: 0.0, grain }
+    }
+
+    #[inline]
+    fn process(&mut self, x: f32) -> f32 {
+        let n = self.buf.len();
+        self.buf[self.write] = x;
+        self.write = (self.write + 1) % n;
+        // Two read heads, half a grain apart. The buffer itself advances one
+        // sample per call, so advancing the heads by one more makes them 2x.
+        self.read = (self.read + 1.0) % self.grain as f32;
+        let mut out = 0.0;
+        for k in 0..2 {
+            let r = (self.read + k as f32 * self.grain as f32 * 0.5) % self.grain as f32;
+            let w = 1.0 - (2.0 * r / self.grain as f32 - 1.0).abs();
+            let pos = (self.write as f32 + n as f32 - self.grain as f32 * 2.0 + r) % n as f32;
+            let i = pos as usize;
+            let frac = pos - i as f32;
+            let a = self.buf[i % n];
+            let b = self.buf[(i + 1) % n];
+            out += (a + (b - a) * frac) * w;
+        }
+        out
+    }
 }
 
 impl PlateReverb {
@@ -115,6 +158,11 @@ impl PlateReverb {
             lfo_step: 0.9 / sample_rate,
             excursion,
             scale,
+            shimmer: settings.shimmer.clamp(0.0, 1.0),
+            shifter: OctaveShifter::new(sample_rate),
+            wet_lowcut: (settings.lowcut_hz > 0.0).then(|| [OnePole::new(settings.lowcut_hz, sample_rate), OnePole::new(settings.lowcut_hz, sample_rate)]),
+            wet_highcut: (settings.highcut_hz > 0.0).then(|| [OnePole::new(settings.highcut_hz, sample_rate), OnePole::new(settings.highcut_hz, sample_rate)]),
+            shimmer_feed: 0.0,
         }
     }
 
@@ -124,7 +172,7 @@ impl PlateReverb {
         let t = |n: f32, sc: f32| (n * sc) as usize;
         let sc = self.scale;
         for i in 0..out_l.len() {
-            let x = 0.5 * (in_l.get(i).copied().unwrap_or(0.0) + in_r.get(i).copied().unwrap_or(0.0));
+            let x = 0.5 * (in_l.get(i).copied().unwrap_or(0.0) + in_r.get(i).copied().unwrap_or(0.0)) + self.shimmer_feed;
             let x = self.input_hp.highpass(x);
             let x = if self.predelay_samples > 0 {
                 let d = self.predelay.tap(self.predelay_samples);
@@ -164,8 +212,21 @@ impl PlateReverb {
                 - da[1].tap(t(2111.0, sc))
                 - apr.tap(t(335.0, sc))
                 - db[1].tap(t(121.0, sc));
-            out_l[i] = l * 0.6;
-            out_r[i] = r * 0.6;
+            let (mut l, mut r) = (l * 0.6, r * 0.6);
+            if let Some(f) = &mut self.wet_lowcut {
+                l = f[0].highpass(l);
+                r = f[1].highpass(r);
+            }
+            if let Some(f) = &mut self.wet_highcut {
+                l = f[0].lowpass(l);
+                r = f[1].lowpass(r);
+            }
+            if self.shimmer > 0.0 {
+                // An octave-up copy of the tail feeds back into the input.
+                self.shimmer_feed = self.shifter.process(0.5 * (l + r)) * self.shimmer * 0.5;
+            }
+            out_l[i] = l;
+            out_r[i] = r;
         }
     }
 }
