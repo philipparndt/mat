@@ -1,0 +1,180 @@
+# Drunken Sailor — traditional sea shanty (public domain)
+# Epic arrangement using Logic sampler instruments (macOS only).
+
+title "Drunken Sailor (orchestral samples)"
+tempo 132
+meter 4/4
+
+# ------------------------------------------------------------ instruments
+# Logic Pro / GarageBand sampler instruments, played by the built-in sampler.
+
+instrument strings sampler
+  load "logic:09 Orchestral/09 Strings/String Ensemble.exs"
+
+instrument choir sampler
+  load "logic:09 Orchestral/02 Brass/French Horns Legato.exs"
+
+instrument brass sampler
+  load "logic:09 Orchestral/02 Brass/Trumpets+.exs"
+
+instrument low_brass sampler
+  load "logic:09 Orchestral/02 Brass/Trombones+.exs"
+
+# Logic's Drum Kit Designer kit. Its low tom sits on note 43.
+instrument kit sampler
+  load "logic:03 Drums & Percussion/04 Drum Kit Designer/Drum Kit Designer/Stereo/SoCal Kit.exs"
+  map tom=43
+
+# ------------------------------------------------------------ patterns
+
+# Galloping low strings (8th + two 16ths), one bar per chord.
+pattern gallop_d grid=1/16
+  D2 X.xxX.xxX.xxX.xx
+  A2 X.xxX.xxX.xxX.xx
+  D3 X.xxX.xxX.xxX.xx
+
+pattern gallop_c grid=1/16
+  C2 X.xxX.xxX.xxX.xx
+  G2 X.xxX.xxX.xxX.xx
+  C3 X.xxX.xxX.xxX.xx
+
+pattern chords
+  [D3 A3 F4]:w | [D3 A3 F4]:w | [C3 G3 E4]:w | [C3 G3 E4]:w |
+  [D3 A3 F4]:w | [D3 A3 F4]:w | [C3 G3 E4]:w | [D3 A3 F4]:w |
+
+# "What shall we do with a drunken sailor ... early in the morning"
+pattern verse
+  A4:q A4:e A4 A4:q A4:e A4 | A4:q D4 F4 A4 |
+  G4:q G4:e G4 G4:q G4:e G4 | G4:q C4 E4 G4 |
+  A4:q A4:e A4 A4:q A4:e A4 | A4:q B4 C5 D5 |
+  C5:q A4 G4 E4             | D4:h D4:h@80  |
+
+# "Way hay and up she rises ... early in the morning"
+pattern chorus
+  A4:h@120 A4:h@110 | A4:e A4 D4:q F4 A4 |
+  G4:h@120 G4:h@110 | G4:e G4 C4:q E4 G4 |
+  A4:h@120 A4:h@110 | A4:e A4 B4:q C5 D5 |
+  C5:q A4 G4 E4     | D4:h D4:h@80       |
+
+pattern drive grid=1/16
+  kick  X.....x.X.....x.
+  snare ....X.......X...
+  hat   x.o.x.o.x.o.x.o.
+
+pattern drive_crash grid=1/16
+  kick  X.....x.X.....x.
+  snare ....X.......X...
+  hat   ..o.x.o.x.o.x.o.
+  crash X...............
+
+pattern fill grid=1/16
+  kick  X.......X.......
+  snare ....x.x.xxxx6789
+  hat   x.o.x.o.........
+
+pattern toms grid=1/16
+  kick  X.......X.......
+  tom   X..x..x.X..x..x.
+  hat   ................
+
+pattern ending
+  [D2 A2 D3]:q@127 r:q r:h |
+
+pattern ending_chord
+  [D3 A3 D4 F4]:w@120 |
+
+pattern ending_hit grid=1/16
+  kick  X...............
+  tom   X...............
+  crash X...............
+
+# ------------------------------------------------------------ arrangement
+# Bars:  1-4 intro | 5-12 verse | 13-20 chorus | 21-28 verse
+#        29-36 chorus in E (key change) | 37 ending
+
+track low_strings
+  instrument strings
+  gain 1.5
+  reverb 0.25
+  play gallop_d x4
+  # verse and chorus (2 times in D)
+  play gallop_d x2
+  play gallop_c x2
+  play gallop_d x2
+  play gallop_c
+  play gallop_d
+  play gallop_d x2
+  play gallop_c x2
+  play gallop_d x2
+  play gallop_c
+  play gallop_d
+  play gallop_d x2
+  play gallop_c x2
+  play gallop_d x2
+  play gallop_c
+  play gallop_d
+  # final chorus, one step up
+  play gallop_d x2 transpose=2
+  play gallop_c x2 transpose=2
+  play gallop_d x2 transpose=2
+  play gallop_c transpose=2
+  play gallop_d transpose=2
+  play ending transpose=2
+
+track pad
+  instrument choir
+  gain -18.5
+  pan 0
+  reverb 0.5
+  at 5
+  play chords x3
+  play chords transpose=2
+  play ending_chord transpose=2
+
+track melody
+  instrument brass
+  gain -2.5
+  pan 0.1
+  reverb 0.3
+  delay 0.12
+  at 5
+  play verse
+  play chorus
+  play verse
+  play chorus transpose=2 vel=1.1
+
+track melody_octave
+  instrument low_brass
+  gain -8
+  pan -0.25
+  reverb 0.4
+  at 13
+  play chorus transpose=-12
+  rest 8
+  play chorus transpose=-10
+
+track drums
+  instrument kit
+  gain 0
+  reverb 0.12
+  play toms x3
+  play fill
+  play drive_crash
+  play drive x6
+  play fill
+  play drive_crash
+  play drive x6
+  play fill
+  play drive_crash
+  play drive x6
+  play fill
+  play drive_crash
+  play drive x6
+  play fill
+  play ending_hit
+
+master
+  gain 4
+  reverb size=0.85 decay=0.7 damping=0.5 predelay=25ms
+  delay time=3/16 feedback=0.3 tone=2.5k
+  limiter ceiling=-1

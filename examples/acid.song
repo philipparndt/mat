@@ -1,0 +1,60 @@
+# Acid — an original TB-303 line over a four-on-the-floor beat.
+# Accent a note with ! and slide into the next note with ~.
+
+title "Acid"
+tempo 128
+meter 4/4
+
+instrument acid tb303
+  wave saw
+  cutoff 0.25
+  resonance 0.8
+  envmod 0.55
+  decay 0.35
+  accent 0.8
+  drive 0.35
+
+instrument kit drums
+  kick decay=0.8
+  hat gain=-3
+  openhat decay=0.6 gain=-3
+
+pattern line
+  A1:s A1 A2! A1 r C2~ D2 A1   A1 G2! A1~ A2 r A1 E2~ G2 |
+  A1:s A1 A2! A1 r C2~ D2 A1   A1 C3!~ A2 G2 E2! D2 C2~ A1 |
+
+pattern beat grid=1/16
+  kick    X...X...X...X...
+  clap    ....x.......x...
+  hat     x.x.x.x.x.x.x.x.
+  openhat ..x...x...x...x.
+
+pattern kicks grid=1/16
+  kick    X...X...X...X...
+
+# Bars: 1-8 line alone, filter opening | 9-24 with drums | 25-32 squelch peak and back
+track acid
+  instrument acid
+  gain -4
+  reverb 0.08
+  delay 0.18
+  sidechain drums depth=0.35 release=0.12
+  sweep cutoff from=0.1 to=0.35 bars=1-8
+  sweep envmod from=0.35 to=0.7 bars=9-16
+  sweep cutoff from=0.35 to=0.6 bars=17-24
+  sweep resonance from=0.8 to=0.92 bars=17-24
+  sweep cutoff from=0.6 to=0.2 bars=25-32
+  play line x16
+
+track drums
+  instrument kit
+  gain -5
+  reverb 0.05
+  play kicks x4
+  play beat x28
+
+master
+  gain 3
+  reverb size=0.5 decay=0.5 damping=0.5
+  delay time=3/16 feedback=0.35 tone=2.5k
+  limiter ceiling=-1

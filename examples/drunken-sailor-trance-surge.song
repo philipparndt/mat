@@ -1,0 +1,307 @@
+# Drunken Sailor — traditional sea shanty (public domain)
+# Uplifting trance arrangement with Surge XT (CLAP) for leads, pads, plucks,
+# stabs and bass; drums, riser and impacts come from the built-in engine.
+# Requires Surge XT: https://surge-synthesizer.github.io
+# The melody uses Bb instead of B (D minor) and a trance progression:
+#   Dm | Bb | C | C | Dm | Bb | Am | Dm
+
+title "Drunken Sailor (trance, Surge XT)"
+tempo 138
+meter 4/4
+
+# ------------------------------------------------------------ instruments
+
+instrument lead clap
+  plugin "Surge XT"
+  patch "surge:Polysynths/Anthemish 3.fxp"
+
+# A plucky layer on top of the lead for attack and bite.
+instrument lead_bite clap
+  plugin "Surge XT"
+  patch "surge-3rdparty:Argitoth/Leads/Trance Lead 2.fxp"
+
+instrument soft_lead synth
+  osc triangle level=0.8
+  osc saw voices=3 spread=8 level=0.35
+  filter lowpass cutoff=1800 res=0.1 keytrack=0.5
+  amp attack=20ms decay=0.5 sustain=0.7 release=0.5
+  vibrato rate=5 depth=12 delay=0.25
+
+instrument pluck clap
+  plugin "Surge XT"
+  patch "surge-3rdparty:A.Liv/Plucks/Cute 1.fxp"
+
+instrument bass clap
+  plugin "Surge XT"
+  patch "surge:Basses/Stable.fxp"
+  param "A Amp EG Decay" 0.15
+  param "A Amp EG Sustain" 0.3
+  param "A Amp EG Release" 0.05
+
+# Short release so the offbeat stabs stay separate.
+instrument stab clap
+  plugin "Surge XT"
+  patch "surge:Polysynths/Megasynth 1.fxp"
+  param "A Amp EG Release" 0.1
+  param "B Amp EG Release" 0.1
+
+instrument pad clap
+  plugin "Surge XT"
+  patch "surge-3rdparty:Argitoth/Pads/Classic Strings.fxp"
+
+# White noise with an 8-bar filter sweep: the build-up riser.
+instrument riser synth
+  noise 0.6
+  filter bandpass cutoff=250 res=0.5 env=5.5
+  amp attack=13s decay=1 sustain=1 release=50ms
+  fenv attack=13.5s decay=1 sustain=1 release=50ms
+
+# Sub boom plus a noise sweep downwards: marks the start of a section.
+instrument impact synth
+  noise 0.7
+  osc sine octave=-2 level=0.8
+  filter lowpass cutoff=150 res=0.2 env=6
+  amp attack=1ms decay=3 sustain=0 release=0.5
+  fenv attack=1ms decay=2.5 sustain=0 release=0.5
+
+instrument kit drums
+  kick decay=0.75 tune=1
+  clap decay=1.1
+  snare decay=0.7
+  hat gain=-4
+  openhat decay=0.5 gain=-2
+
+# ------------------------------------------------------------ patterns
+
+pattern verse
+  A4:q A4:e A4 A4:q A4:e A4 | A4:q D4 F4 A4  |
+  G4:q G4:e G4 G4:q G4:e G4 | G4:q C4 E4 G4  |
+  A4:q A4:e A4 A4:q A4:e A4 | A4:q Bb4 C5 D5 |
+  C5:q A4 G4 E4             | D4:h D4:h@80   |
+
+pattern chorus
+  A4:h@120 A4:h@110 | A4:e A4 D4:q F4 A4  |
+  G4:h@120 G4:h@110 | G4:e G4 C4:q E4 G4  |
+  A4:h@120 A4:h@110 | A4:e A4 Bb4:q C5 D5 |
+  C5:q A4 G4 E4     | D4:h D4:h@80        |
+
+pattern chords
+  [D4 F4 A4]:w | [D4 F4 Bb4]:w | [E4 G4 C5]:w | [E4 G4 C5]:w |
+  [D4 F4 A4]:w | [D4 F4 Bb4]:w | [E4 A4 C5]:w | [D4 F4 A4]:w |
+
+# Rolling offbeat bass: the kick owns the downbeat.
+pattern bass
+  r:s D2 D2 D2 r D2 D2 D2 r D2 D2 D2 r D2 D2 D2                 |
+  r Bb1 Bb1 Bb1 r Bb1 Bb1 Bb1 r Bb1 Bb1 Bb1 r Bb1 Bb1 Bb1       |
+  r C2 C2 C2 r C2 C2 C2 r C2 C2 C2 r C2 C2 C2                   |
+  r C2 C2 C2 r C2 C2 C2 r C2 C2 C2 r C2 C2 C2                   |
+  r D2 D2 D2 r D2 D2 D2 r D2 D2 D2 r D2 D2 D2                   |
+  r Bb1 Bb1 Bb1 r Bb1 Bb1 Bb1 r Bb1 Bb1 Bb1 r Bb1 Bb1 Bb1       |
+  r A1 A1 A1 r A1 A1 A1 r A1 A1 A1 r A1 A1 A1                   |
+  r D2 D2 D2 r D2 D2 D2 r D2 D2 D2 r D2 D2 D2                   |
+
+# Offbeat chord stabs (the classic trance "pump").
+pattern stabs
+  r:e [D4 F4 A4] r [D4 F4 A4] r [D4 F4 A4] r [D4 F4 A4]     |
+  r [D4 F4 Bb4] r [D4 F4 Bb4] r [D4 F4 Bb4] r [D4 F4 Bb4]   |
+  r [E4 G4 C5] r [E4 G4 C5] r [E4 G4 C5] r [E4 G4 C5]       |
+  r [E4 G4 C5] r [E4 G4 C5] r [E4 G4 C5] r [E4 G4 C5]       |
+  r [D4 F4 A4] r [D4 F4 A4] r [D4 F4 A4] r [D4 F4 A4]       |
+  r [D4 F4 Bb4] r [D4 F4 Bb4] r [D4 F4 Bb4] r [D4 F4 Bb4]   |
+  r [E4 A4 C5] r [E4 A4 C5] r [E4 A4 C5] r [E4 A4 C5]       |
+  r [D4 F4 A4] r [D4 F4 A4] r [D4 F4 A4] r [D4 F4 A4]       |
+
+pattern arp
+  D5:s A4 F4 A4 D5 A4 F4 A4 D5 A4 F4 A4 D5 A4 F4 A4         |
+  D5 Bb4 F4 Bb4 D5 Bb4 F4 Bb4 D5 Bb4 F4 Bb4 D5 Bb4 F4 Bb4   |
+  E5 C5 G4 C5 E5 C5 G4 C5 E5 C5 G4 C5 E5 C5 G4 C5           |
+  E5 C5 G4 C5 E5 C5 G4 C5 E5 C5 G4 C5 E5 C5 G4 C5           |
+  D5 A4 F4 A4 D5 A4 F4 A4 D5 A4 F4 A4 D5 A4 F4 A4           |
+  D5 Bb4 F4 Bb4 D5 Bb4 F4 Bb4 D5 Bb4 F4 Bb4 D5 Bb4 F4 Bb4   |
+  E5 C5 A4 C5 E5 C5 A4 C5 E5 C5 A4 C5 E5 C5 A4 C5           |
+  D5 A4 F4 A4 D5 A4 F4 A4 D5 A4 F4 A4 D5 A4 F4 A4           |
+
+pattern intro_beat grid=1/16
+  kick    X...x...X...x...
+  openhat ..x...x...x...x.
+
+pattern beat grid=1/16
+  kick    X...x...X...x...
+  clap    ....X.......X...
+  hat     .o...o...o...o..
+  openhat ..x...x...x...x.
+
+pattern beat_fill grid=1/16
+  kick    X...x...X...x...
+  clap    ....X.......X...
+  hat     .o...o...o...o..
+  openhat ..x...x...x.....
+  snare   ............x6x9
+
+pattern roll_q grid=1/16
+  snare 3...4...4...5...
+
+pattern roll_e grid=1/16
+  snare 5.5.6.6.6.6.7.7.
+
+pattern roll_s grid=1/16
+  snare 7777777788888888
+
+pattern roll_up grid=1/16
+  snare 8888888899999999
+
+pattern final_hit grid=1/16
+  kick    X...............
+  openhat X...............
+
+pattern riser_note
+  C4:8/1
+
+pattern boom
+  D3:w
+
+pattern bass_end
+  D2:h r:h |
+
+pattern final_chord
+  [D3 A3 D4 F4]:w |
+
+# ------------------------------------------------------------ arrangement
+# Bars:  1-8 intro | 9-16 groove | 17-24 breakdown | 25-32 build-up
+#        33-40 drop (verse) | 41-48 drop (chorus) | 49-56 outro | 57 end
+
+track drums
+  instrument kit
+  gain -4
+  reverb 0.08
+  play intro_beat x8
+  play beat x7
+  play beat_fill
+  rest 8
+  play roll_q x4
+  play roll_e x2
+  play roll_s
+  play roll_up
+  play beat x7
+  play beat_fill
+  play beat x7
+  play beat_fill
+  play beat x4
+  play intro_beat x4
+  play final_hit
+
+track bass
+  instrument bass
+  gain -6
+  eq lowcut=30 low=-2 lowfreq=90 mid=+2 midfreq=900
+  sidechain drums depth=0.75 release=0.1
+  at 9
+  play bass
+  rest 16
+  play bass x3
+  play bass_end
+
+track arp
+  instrument pluck
+  gain -13.5
+  pan -0.2
+  reverb 0.25
+  delay 0.35
+  eq lowcut=300 high=+4 highfreq=4k
+  chorus mix=0.35
+  sidechain drums depth=0.4
+  at 9
+  play arp
+  play arp x2 vel=0.75
+  play arp x3
+
+track stabs
+  instrument stab
+  gain -13.5
+  pan 0.15
+  reverb 0.2
+  eq lowcut=250 high=+4 highfreq=4k
+  sidechain drums depth=0.6
+  at 9
+  play stabs
+  rest 16
+  play stabs x3
+
+track pad
+  instrument pad
+  gain -15
+  reverb 0.5
+  eq lowcut=250 high=+4 highfreq=5k
+  chorus mix=0.5
+  sidechain drums depth=0.8 release=0.3
+  at 17
+  play chords x4
+  at 57
+  play final_chord
+
+track breakdown_lead
+  instrument soft_lead
+  gain -8
+  reverb 0.45
+  delay 0.3
+  eq lowcut=200
+  at 17
+  play verse
+  play chorus
+
+track lead
+  instrument lead
+  gain -10.5
+  reverb 0.35
+  delay 0.25
+  eq lowcut=300 mid=+3 midfreq=2k high=+6 highfreq=4k
+  chorus mix=0.25
+  sidechain drums depth=0.35
+  at 33
+  play verse transpose=12
+  play chorus transpose=12
+
+track lead_bite
+  instrument lead_bite
+  gain -19
+  pan 0.2
+  reverb 0.3
+  delay 0.25
+  eq lowcut=400 high=+5 highfreq=4k
+  at 33
+  play verse transpose=12
+  play chorus transpose=12
+
+track lead_low
+  instrument lead
+  gain -17
+  pan -0.3
+  reverb 0.3
+  eq lowcut=150
+  sidechain drums depth=0.35
+  at 41
+  play chorus
+
+track riser
+  instrument riser
+  gain 0
+  reverb 0.4
+  at 25
+  play riser_note
+
+track impact
+  instrument impact
+  gain -2
+  reverb 0.6
+  at 17
+  play boom
+  at 33
+  play boom
+  at 57
+  play boom
+
+master
+  gain 6
+  reverb size=0.9 decay=0.8 damping=0.35 predelay=30ms
+  delay time=3/16 feedback=0.4 tone=4k
+  limiter ceiling=-1

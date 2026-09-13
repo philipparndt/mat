@@ -1,0 +1,178 @@
+# Drunken Sailor — traditional sea shanty (public domain)
+# Epic arrangement for the built-in synth engine.
+
+title "Drunken Sailor (epic synth arrangement)"
+tempo 132
+meter 4/4
+
+# ------------------------------------------------------------ instruments
+
+instrument strings synth
+  osc supersaw detune=0.3 mix=0.5
+  osc saw octave=-1 level=0.4
+  filter lowpass cutoff=700 res=0.15 env=2.5 keytrack=0.5
+  amp attack=3ms decay=0.12 sustain=0.3 release=0.08
+  fenv attack=1ms decay=0.09 sustain=0 release=0.1
+
+instrument choir synth
+  osc supersaw detune=0.45 mix=0.7 level=0.8
+  osc triangle octave=1 level=0.2
+  filter lowpass cutoff=900 res=0.1 env=1.2 keytrack=0.3
+  amp attack=0.5 decay=1.5 sustain=0.8 release=1.2
+  fenv attack=0.8 decay=2.0 sustain=0.5 release=1.0
+
+instrument brass synth
+  osc saw voices=3 spread=7
+  osc square octave=-1 level=0.3
+  filter lowpass cutoff=600 res=0.2 env=3 keytrack=0.6 drive=0.3
+  amp attack=25ms decay=0.3 sustain=0.85 release=0.2
+  fenv attack=60ms decay=0.5 sustain=0.45 release=0.2
+  vibrato rate=5.2 depth=9 delay=0.3
+
+instrument kit drums
+  kick decay=1.3
+  tom tune=-3 decay=1.4
+  snare decay=1.2
+
+# ------------------------------------------------------------ patterns
+
+# Galloping low strings (8th + two 16ths), one bar per chord.
+pattern gallop_d grid=1/16
+  D2 X.xxX.xxX.xxX.xx
+  A2 X.xxX.xxX.xxX.xx
+  D3 X.xxX.xxX.xxX.xx
+
+pattern gallop_c grid=1/16
+  C2 X.xxX.xxX.xxX.xx
+  G2 X.xxX.xxX.xxX.xx
+  C3 X.xxX.xxX.xxX.xx
+
+pattern chords
+  [D3 A3 F4]:w | [D3 A3 F4]:w | [C3 G3 E4]:w | [C3 G3 E4]:w |
+  [D3 A3 F4]:w | [D3 A3 F4]:w | [C3 G3 E4]:w | [D3 A3 F4]:w |
+
+# "What shall we do with a drunken sailor ... early in the morning"
+pattern verse
+  A4:q A4:e A4 A4:q A4:e A4 | A4:q D4 F4 A4 |
+  G4:q G4:e G4 G4:q G4:e G4 | G4:q C4 E4 G4 |
+  A4:q A4:e A4 A4:q A4:e A4 | A4:q B4 C5 D5 |
+  C5:q A4 G4 E4             | D4:h D4:h@80  |
+
+# "Way hay and up she rises ... early in the morning"
+pattern chorus
+  A4:h@120 A4:h@110 | A4:e A4 D4:q F4 A4 |
+  G4:h@120 G4:h@110 | G4:e G4 C4:q E4 G4 |
+  A4:h@120 A4:h@110 | A4:e A4 B4:q C5 D5 |
+  C5:q A4 G4 E4     | D4:h D4:h@80       |
+
+pattern drive grid=1/16
+  kick  X.....x.X.....x.
+  snare ....X.......X...
+  hat   x.o.x.o.x.o.x.o.
+
+pattern fill grid=1/16
+  kick  X.......X.......
+  snare ....x.x.xxxx6789
+  hat   x.o.x.o.........
+
+pattern toms grid=1/16
+  kick  X.......X.......
+  tom   X..x..x.X..x..x.
+  hat   ................
+
+pattern ending
+  [D2 A2 D3]:q@127 r:q r:h |
+
+pattern ending_chord
+  [D3 A3 D4 F4]:w@120 |
+
+pattern ending_hit grid=1/16
+  kick  X...............
+  tom   X...............
+
+# ------------------------------------------------------------ arrangement
+# Bars:  1-4 intro | 5-12 verse | 13-20 chorus | 21-28 verse
+#        29-36 chorus in E (key change) | 37 ending
+
+track low_strings
+  instrument strings
+  gain -4
+  reverb 0.25
+  play gallop_d x4
+  # verse and chorus (2 times in D)
+  play gallop_d x2
+  play gallop_c x2
+  play gallop_d x2
+  play gallop_c
+  play gallop_d
+  play gallop_d x2
+  play gallop_c x2
+  play gallop_d x2
+  play gallop_c
+  play gallop_d
+  play gallop_d x2
+  play gallop_c x2
+  play gallop_d x2
+  play gallop_c
+  play gallop_d
+  # final chorus, one step up
+  play gallop_d x2 transpose=2
+  play gallop_c x2 transpose=2
+  play gallop_d x2 transpose=2
+  play gallop_c transpose=2
+  play gallop_d transpose=2
+  play ending transpose=2
+
+track pad
+  instrument choir
+  gain -12
+  pan 0
+  reverb 0.5
+  at 5
+  play chords x3
+  play chords transpose=2
+  play ending_chord transpose=2
+
+track melody
+  instrument brass
+  gain -5
+  pan 0.1
+  reverb 0.3
+  delay 0.12
+  at 5
+  play verse
+  play chorus
+  play verse
+  play chorus transpose=2 vel=1.1
+
+track melody_octave
+  instrument brass
+  gain -13
+  pan -0.25
+  reverb 0.4
+  at 13
+  play chorus transpose=-12
+  rest 8
+  play chorus transpose=-10
+
+track drums
+  instrument kit
+  gain -6
+  reverb 0.12
+  play toms x3
+  play fill
+  play drive x7
+  play fill
+  play drive x7
+  play fill
+  play drive x7
+  play fill
+  play drive x7
+  play fill
+  play ending_hit
+
+master
+  gain 4
+  reverb size=0.85 decay=0.7 damping=0.5 predelay=25ms
+  delay time=3/16 feedback=0.3 tone=2.5k
+  limiter ceiling=-1
