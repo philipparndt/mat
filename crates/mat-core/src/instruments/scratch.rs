@@ -67,21 +67,66 @@ pub fn render_region(def: &ScratchDef, left: Vec<f32>, right: Vec<f32>, rate: f6
                 _ => return None,
             };
             let fade = (0.0015 * sample_rate) as usize;
-            let mut out_l = Vec::with_capacity(frames);
-            let mut out_r = Vec::with_capacity(frames);
+            let mut out_l = vec![0.0f32; frames];
+            let mut out_r = vec![0.0f32; frames];
             let mut gate_smooth = 0.0f64;
             let coef = 1.0 - (-1.0 / fade.max(1) as f64).exp();
-            for i in 0..frames {
-                let x = i as f64 / frames as f64;
-                let p = pos(x) + pad as f64;
-                let next = pos(((i + 1) as f64 / frames as f64).min(1.0)) + pad as f64;
-                let velocity = (next - p).abs().max(1e-3);
-                let cutoff = (1.0 / velocity).min(1.0) as f32;
-                gate_smooth += (fader(x) - gate_smooth) * coef;
-                let edge = (i.min(frames - 1 - i) as f64 / fade as f64).min(1.0);
-                let a = (gate_smooth * edge) as f32 * gain * (0.3 + 0.7 * note.velocity);
-                out_l.push(sinc::interpolate(&left, p, cutoff) * a);
-                out_r.push(sinc::interpolate(&right, p, cutoff) * a);
+            if def.keep_pitch {
+                // Time-stretch: grains from the moving position, each played at
+                // the record's own pitch, overlap-added with a Hann window.
+                let grain = ((def.grain * sample_rate) as usize).max(96);
+                // Short grains: Hann windows with 4x overlap (smooth, tonal).
+                // Long grains: slices with short crossfades, so drum hits stay sharp.
+                let slicing = def.grain > 0.06;
+                let xfade = (0.004 * sample_rate) as usize;
+                let hop = if slicing { grain - xfade } else { grain / 4 };
+                let native = rate / sample_rate as f64;
+                let mut g = 0usize;
+                while g < frames {
+                    let x = g as f64 / frames as f64;
+                    let p0 = pos(x) + pad as f64;
+                    for k in 0..grain {
+                        let i = g + k;
+                        if i >= frames {
+                            break;
+                        }
+                        let w = if slicing {
+                            let rise = (k as f64 / xfade as f64).min(1.0);
+                            let fall = ((grain - 1 - k) as f64 / xfade as f64).min(1.0);
+                            rise.min(fall)
+                        } else {
+                            0.25 * (1.0 - (2.0 * PI * k as f64 / grain as f64).cos())
+                        };
+                        let p = p0 + k as f64 * native;
+                        if p >= left.len() as f64 - 1.0 {
+                            break;
+                        }
+                        out_l[i] += sinc::interpolate(&left, p, 1.0) * w as f32;
+                        out_r[i] += sinc::interpolate(&right, p, 1.0) * w as f32;
+                    }
+                    g += hop.max(1);
+                }
+                for i in 0..frames {
+                    let x = i as f64 / frames as f64;
+                    gate_smooth += (fader(x) - gate_smooth) * coef;
+                    let edge = (i.min(frames - 1 - i) as f64 / fade as f64).min(1.0);
+                    let a = (gate_smooth * edge) as f32 * gain * (0.3 + 0.7 * note.velocity);
+                    out_l[i] *= a;
+                    out_r[i] *= a;
+                }
+            } else {
+                for i in 0..frames {
+                    let x = i as f64 / frames as f64;
+                    let p = pos(x) + pad as f64;
+                    let next = pos(((i + 1) as f64 / frames as f64).min(1.0)) + pad as f64;
+                    let velocity = (next - p).abs().max(1e-3);
+                    let cutoff = (1.0 / velocity).min(1.0) as f32;
+                    gate_smooth += (fader(x) - gate_smooth) * coef;
+                    let edge = (i.min(frames - 1 - i) as f64 / fade as f64).min(1.0);
+                    let a = (gate_smooth * edge) as f32 * gain * (0.3 + 0.7 * note.velocity);
+                    out_l[i] = sinc::interpolate(&left, p, cutoff) * a;
+                    out_r[i] = sinc::interpolate(&right, p, cutoff) * a;
+                }
             }
             Some(StereoClip { offset: (note.start * sample_rate as f64).round() as usize, left: out_l, right: out_r })
         })

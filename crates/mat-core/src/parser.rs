@@ -494,7 +494,7 @@ impl Parser {
     }
 
     fn scratch_body(&mut self, block: &Block) -> Option<ScratchDef> {
-        let mut def = ScratchDef { path: String::new(), source_track: None, start: 0.0, length: None, speed: 1.0, gain_db: 0.0 };
+        let mut def = ScratchDef { path: String::new(), source_track: None, start: 0.0, length: None, speed: 1.0, keep_pitch: false, grain: 0.04, gain_db: 0.0 };
         for line in &block.body {
             let kw = &line.tokens[0];
             match kw.text.as_str() {
@@ -542,7 +542,25 @@ impl Parser {
                     if kw.text == "speed" { set(&mut def.speed, self.value(t, &t.text, 0.2, 4.0)) } else { set(&mut def.gain_db, self.db(t, &t.text)) }
                     self.extra_tokens(line, 2);
                 }
-                other => self.unknown_keyword(kw, other, "scratch instruments", &["sample", "source", "speed", "gain"]),
+                "grain" => {
+                    if let Some(t) = self.arg(line, 1, "grain length such as 40ms or 1/16") {
+                        match parse_duration(&t.text).map(|d| self.song.seconds(d) as f32).or_else(|| parse_seconds(&t.text).map(|v| v as f32)) {
+                            Some(v) if v > 0.002 => def.grain = v,
+                            _ => self.err_hint(t.span, format!("invalid grain '{}'", t.text), "seconds (40ms) or a note value (1/16, s)"),
+                        }
+                    }
+                    self.extra_tokens(line, 2);
+                }
+                "pitch" => {
+                    let Some(t) = self.arg(line, 1, "keep or follow") else { continue };
+                    match t.text.as_str() {
+                        "keep" => def.keep_pitch = true,
+                        "follow" => def.keep_pitch = false,
+                        other => self.err_hint(t.span, format!("unknown pitch mode '{other}'"), "pitch keep (time-stretch) or pitch follow (vinyl, default)"),
+                    }
+                    self.extra_tokens(line, 2);
+                }
+                other => self.unknown_keyword(kw, other, "scratch instruments", &["sample", "source", "speed", "pitch", "grain", "gain"]),
             }
         }
         if def.path.is_empty() && def.source_track.is_none() {

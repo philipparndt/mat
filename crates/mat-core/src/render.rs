@@ -109,6 +109,14 @@ pub fn render(timeline: &Timeline, sample_rate: u32, mut stems: HashMap<usize, S
                 }
             }
         }
+        // The record should sound like the source track does in the mix: apply its gain and EQ.
+        if let Some(src) = timeline.tracks.iter().find(|t| &t.name == src_name) {
+            if let Some(eq) = &src.eq {
+                apply_eq(eq, &mut region.0, &mut region.1, sr);
+            }
+            let g = db_to_gain(src.gain_db);
+            region.0.iter_mut().chain(region.1.iter_mut()).for_each(|s| *s *= g);
+        }
         match crate::instruments::scratch::render_region(def, region.0, region.1, sr as f64, &track.notes, sr) {
             Ok(clips) => rendered.push((ti, clips)),
             Err(e) => warnings.push(format!("track '{}': {e}", track.name)),

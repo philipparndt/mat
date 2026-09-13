@@ -339,6 +339,12 @@ pub struct ScratchDef {
     pub length: Option<f64>,
     /// How far the record travels per move, 1 = normal playback speed on average.
     pub speed: f32,
+    /// Keep the original pitch whatever the speed (time-stretch) instead of
+    /// pitching up and down like vinyl.
+    pub keep_pitch: bool,
+    /// Grain length in seconds for `keep_pitch`: short grains (≤ 60 ms) overlap
+    /// smoothly for tonal material, longer ones play as slices with transients intact.
+    pub grain: f32,
     pub gain_db: f32,
 }
 

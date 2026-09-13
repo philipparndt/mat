@@ -171,6 +171,8 @@ instrument dj scratch
   source lead bars=49-49                   # ... or another track of this song (its dry audio),
                                            #     or `source mix bars=8-8` for everything but scratches
   speed 1.2                                # how far it travels per move
+  pitch keep                               # time-stretch: same pitch at any speed (default: follow, like vinyl)
+  grain 1/16                               # with pitch keep: ≤ 60 ms overlapping grains (smooth), longer = slices (drums)
   gain -3
 ```
 

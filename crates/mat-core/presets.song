@@ -301,3 +301,12 @@ preset fm-pluck synth "Glassy FM pluck for arps"
   amp attack=1ms decay=0.3 sustain=0 release=0.2
   fenv attack=1ms decay=0.15 sustain=0 release=0.1
   drift 4
+
+preset 909-kit drums "Synthesized 909-style kit: punchy clicky kick, snappy snare, bright hats"
+  kick decay=0.6 tune=2 gain=+1
+  snare decay=0.8 tune=2
+  clap decay=1.0
+  hat gain=-3 tune=1
+  openhat decay=0.7 gain=-1 tune=1
+  ride gain=-6
+  crash gain=-3
