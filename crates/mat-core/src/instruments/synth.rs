@@ -112,17 +112,40 @@ pub fn render_note(def: &SynthDef, note: &TimedNote, sweeps: &[Sweep], sample_ra
         }
     }
 
-    let filter = &def.filter;
     let mut amp_env = Envelope::new(&def.amp, sample_rate);
     let mut filter_env = Envelope::new(&def.filter_env, sample_rate);
-    let mut svf = [Svf::default(), Svf::default()];
-    let key_factor = 2f32.powf(filter.keytrack * (note.midi - 60.0) / 12.0);
-    let base_cutoff = filter.cutoff_hz * key_factor;
+    // One stage per filter: key-tracked base cutoff, envelope depth, drive, and a stereo pair of SVFs.
+    struct Stage {
+        mode: FilterMode,
+        key_factor: f32,
+        base_cutoff: f32,
+        resonance: f32,
+        env_depth: f32,
+        drive: f32,
+        drive_norm: f32,
+        svf: [Svf; 2],
+    }
+    let mut stages: Vec<Stage> = def
+        .filters
+        .iter()
+        .filter(|f| f.mode != FilterMode::Off)
+        .map(|f| {
+            let key_factor = 2f32.powf(f.keytrack * (note.midi - 60.0) / 12.0);
+            let drive = 1.0 + f.drive * 6.0;
+            Stage {
+                mode: f.mode,
+                key_factor,
+                base_cutoff: f.cutoff_hz * key_factor,
+                resonance: f.resonance,
+                env_depth: f.env_octaves * (0.5 + 0.5 * note.velocity),
+                drive: if f.drive > 0.0 { drive } else { 0.0 },
+                drive_norm: 1.0 / drive.tanh(),
+                svf: [Svf::default(), Svf::default()],
+            }
+        })
+        .collect();
     let sweeps_cutoff = sweeps.iter().any(|s| s.param == "cutoff");
     let sweeps_res = sweeps.iter().any(|s| s.param == "res");
-    let env_depth = filter.env_octaves * (0.5 + 0.5 * note.velocity);
-    let drive = 1.0 + filter.drive * 6.0;
-    let drive_norm = 1.0 / drive.tanh();
     let velocity_gain = note.velocity.powf(1.5) * VOICE_GAIN;
 
     let vib = def.vibrato;
@@ -176,20 +199,21 @@ pub fn render_note(def: &SynthDef, note: &TimedNote, sweeps: &[Sweep], sample_ra
         }
 
         let fe = filter_env.next();
-        if filter.mode != FilterMode::Off {
-            if filter.drive > 0.0 {
-                l = (l * drive).tanh() * drive_norm;
-                r = (r * drive).tanh() * drive_norm;
+        let abs_t = note.start + t as f64;
+        // Sweeps move the first stage; the others keep their own settings.
+        for (si, st) in stages.iter_mut().enumerate() {
+            if st.drive > 0.0 {
+                l = (l * st.drive).tanh() * st.drive_norm;
+                r = (r * st.drive).tanh() * st.drive_norm;
             }
-            let abs_t = note.start + t as f64;
-            let base = if sweeps_cutoff { sweep_value(sweeps, "cutoff", abs_t).map_or(base_cutoff, |v| v * key_factor) } else { base_cutoff };
-            let res = if sweeps_res { sweep_value(sweeps, "res", abs_t).unwrap_or(filter.resonance) } else { filter.resonance };
-            let cutoff = base * 2f32.powf(env_depth * fe + lfo_filter);
-            for f in &mut svf {
+            let base = if si == 0 && sweeps_cutoff { sweep_value(sweeps, "cutoff", abs_t).map_or(st.base_cutoff, |v| v * st.key_factor) } else { st.base_cutoff };
+            let res = if si == 0 && sweeps_res { sweep_value(sweeps, "res", abs_t).unwrap_or(st.resonance) } else { st.resonance };
+            let cutoff = base * 2f32.powf(st.env_depth * fe + lfo_filter);
+            for f in &mut st.svf {
                 f.set(cutoff, res, sample_rate);
             }
-            l = svf[0].process(l, filter.mode);
-            r = svf[1].process(r, filter.mode);
+            l = st.svf[0].process(l, st.mode);
+            r = st.svf[1].process(r, st.mode);
         }
 
         let a = amp_env.next() * velocity_gain * (1.0 - lfo_amp.clamp(-1.0, 1.0) * 0.5 - lfo_amp.abs() * 0.0);

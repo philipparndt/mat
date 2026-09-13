@@ -4,7 +4,7 @@
 #
 # Built from presets (see `mat presets`). The piano and the strings need Logic
 # or GarageBand content; everything else is built in.
-# Layers (stems): piano, pad, strings, bass, drums, lead, fx
+# Layers (stems): piano, pad, strings, bass, drums, lead, acid, fx
 
 title "Dream"
 tempo 136
@@ -31,6 +31,12 @@ instrument lead preset dream-lead
 instrument riser preset riser
 instrument impact preset impact
 instrument kit preset house-kit
+instrument acid preset acid
+  cutoff 0.14
+  resonance 0.78
+  envmod 0.3
+  accent 0.9
+  drive 0.3
 
 # ------------------------------------------------------------ piano
 # `pedal` holds every note to the end of its bar, like a sustain pedal
@@ -77,6 +83,18 @@ pattern bass
   r F1 r F2 r F1 r F2     | r F1 r F2 r F1 F1 F2   |
   r C2 r C3 r C2 r C3     | r C2 r C3 r C2 C2 C3   |
   r G1 r G2 r G1 r G2     | r G1 r G2 r G1 G1 G2   |
+
+# A little 303 under the groove: a dark bed of low root pulses with slides;
+# the few accented notes (!) are the small peaks that open the filter.
+pattern acid
+  A1:s~ A1~ A1 r A1~ A1 r A1~ C2!~ A1 r A1~ A1 r r A1                       |
+  A1~ A1 r A1~ A1~ G1 r A1~ A1 r A1~ C2~ A1 r E1~ A1                        |
+  F1~ F1~ F1 r F1~ F1 r F1~ A1~ F1 r F1~ F1 r r F1                          |
+  F1~ F1 r F1~ F1~ E1 r F1~ F1 r F1~ A1!~ F1 r C1~ F1                       |
+  C2~ C2~ C2 r C2~ C2 r C2~ E2!~ C2 r C2~ C2 r r C2                         |
+  C2~ C2 r C2~ C2~ B1 r C2~ C2 r C2~ E2~ C2 r G1~ C2                        |
+  G1~ G1~ G1 r G1~ G1 r G1~ B1~ G1 r G1~ G1 r r G1                          |
+  G1~ G1 r G1~ G1~ F#1 r G1~ G1 r G1~ B1!~ G1 r D1~ G1                      |
 
 # ------------------------------------------------------------ drums
 
@@ -285,6 +303,25 @@ track drums
   play beat_ride x6
   play beat_fill
   play break_hit
+
+track acid
+  instrument acid
+  layer acid
+  gain -13
+  pan 0.2
+  reverb 0.3
+  delay 0.3
+  eq lowcut=80 highcut=4k
+  sidechain drums depth=0.5 release=0.15
+  sweep cutoff from=0.12 to=0.22 bars=33-40
+  sweep cutoff from=0.15 to=0.3 bars=73-88
+  sweep cutoff from=0.18 to=0.35 bars=105-112
+  at 33
+  play acid
+  at 73
+  play acid x2
+  at 105
+  play acid
 
 track riser
   instrument riser

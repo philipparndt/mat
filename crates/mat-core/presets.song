@@ -215,3 +215,59 @@ preset trance master "Glue for trance: bright, loud"
   reverb size=0.85 decay=0.7 damping=0.4 predelay=25ms
   delay time=3/16 feedback=0.38 tone=4k
   limiter ceiling=-1
+
+preset sub-808 synth "808-style sub bass: long sine with drive, for trap and pop"
+  osc sine octave=-1 level=0.9
+  osc triangle octave=-1 level=0.25
+  filter lowpass cutoff=180 res=0.1 env=2 drive=0.5
+  amp attack=2ms decay=0.9 sustain=0.35 release=0.15
+  fenv attack=1ms decay=40ms sustain=0 release=50ms
+
+preset brass-stab synth "Big synth brass stab for pop drops"
+  osc saw voices=5 spread=14 level=0.8
+  osc saw octave=-1 voices=2 spread=8 level=0.5
+  osc square octave=1 level=0.15
+  filter lowpass cutoff=1400 res=0.15 env=2.5 keytrack=0.4 drive=0.3
+  amp attack=5ms decay=0.25 sustain=0.5 release=0.12
+  fenv attack=2ms decay=0.18 sustain=0.3 release=0.1
+  drift 5
+
+preset vocal-chop synth "Vowel-like pluck that stands in for chopped vocals"
+  osc saw voices=2 spread=8 level=0.5
+  osc square level=0.3
+  osc sine octave=1 level=0.3
+  filter bandpass cutoff=1100 res=0.5 env=1.5 keytrack=0.5
+  lfo pitch rate=6 depth=6 fade=0.15
+  amp attack=8ms decay=0.3 sustain=0.2 release=0.15
+  fenv attack=5ms decay=0.15 sustain=0.3 release=0.1
+
+preset pop-pluck synth "Bright pop lead pluck"
+  osc square voices=2 spread=6 level=0.5
+  osc saw level=0.4
+  osc sine octave=1 level=0.3
+  filter lowpass cutoff=2500 res=0.15 env=2 keytrack=0.5
+  amp attack=1ms decay=0.35 sustain=0.15 release=0.25
+  fenv attack=1ms decay=0.2 sustain=0 release=0.15
+  drift 4
+
+preset trap-kit samples "Sampled trap / pop kit: 808 kick, tight snare, crisp hats (CC0)"
+  kick    "samples:sonic-pi/bd_808.wav"             gain=-2
+  kick    "samples:sonic-pi/bd_tek.wav"             gain=-9
+  snare   "samples:sonic-pi/elec_hi_snare.wav"      gain=-4
+  clap    "samples:sonic-pi/perc_snap.wav"          gain=-4
+  hat     "samples:sonic-pi/drum_cymbal_closed.wav" gain=-11
+  openhat "samples:sonic-pi/drum_cymbal_pedal.wav"  gain=-9
+  crash   "samples:sonic-pi/drum_splash_hard.wav"   gain=-10
+  rim     "samples:sonic-pi/elec_tick.wav"          gain=-8
+  tom     "samples:sonic-pi/drum_tom_lo_hard.wav"   gain=-6
+  amp release=40ms
+  velocity 14
+
+preset pop master "Glue for pop: bright, punchy, wide"
+  saturation 0.25
+  comp threshold=-13 ratio=2.5 attack=10ms release=150ms makeup=1.5
+  eq low=+1 lowfreq=90 high=+2 highfreq=8k
+  width 1.2
+  reverb size=0.75 decay=0.6 damping=0.4 predelay=20ms
+  delay time=3/16 feedback=0.3 tone=4k
+  limiter ceiling=-1

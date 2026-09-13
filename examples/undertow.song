@@ -1,0 +1,376 @@
+# Undertow — melodic techno / progressive (124 BPM): rumbling kick, rolling
+# bass, a hypnotic 16th arp that opens over long stretches, dark pads, a sparse
+# bell-pluck hook carried by delay, and a 303 bed under the drops. Original.
+# E minor, chord loop Em | Em | C | C | Em | Em | D | D.
+#
+# Built from presets only (`mat presets`); no external content needed.
+# Layers (stems): drums, rumble, bass, arp, pad, lead, acid, fx
+
+title "Undertow"
+tempo 124
+meter 4/4
+
+section intro   bars=1-16
+section groove  bars=17-32
+section build   bars=33-48
+section break   bars=49-64
+section drop    bars=65-96
+section break2  bars=97-112
+section drop2   bars=113-144
+section outro   bars=145-152
+
+# ------------------------------------------------------------ instruments
+
+instrument kit preset techno-kit
+instrument rumble preset rumble
+instrument bass preset rolling-bass
+  filter lowpass cutoff=300 res=0.2 env=1.6 drive=0.35
+  lfo filter rate=0.03 depth=0.5
+instrument arp preset pluck
+  osc saw voices=2 spread=10
+  filter lowpass cutoff=600 res=0.35 env=2.5 keytrack=0.4
+instrument pad preset dark-pad
+instrument lead preset bell-pluck
+instrument counter preset dream-lead
+  filter lowpass cutoff=1600 res=0.1 keytrack=0.4
+instrument acid preset acid
+  cutoff 0.14
+  resonance 0.78
+  envmod 0.3
+  accent 0.9
+instrument riser preset riser
+instrument impact preset impact
+
+# ------------------------------------------------------------ harmony
+
+pattern chords
+  [E3 G3 B3]:w | [E3 G3 B3]:w | [C3 E3 G3]:w | [C3 E3 G3]:w |
+  [E3 G3 B3]:w | [E3 G3 B3]:w | [D3 F#3 A3]:w | [D3 F#3 A3]:w |
+
+pattern chords_high
+  [E4 G4 B4]:w | [E4 G4 B4]:w | [C4 E4 G4]:w | [C4 E4 G4]:w |
+  [E4 G4 B4]:w | [E4 G4 B4]:w | [D4 F#4 A4]:w | [D4 F#4 A4]:w |
+
+pattern rumble
+  E1:q E1 E1 E1 |
+
+# Rolling bass: offbeat 16ths, a fifth at the end of each two bars.
+pattern bass
+  r:s E1 E1 E1 r E1 E1 E1 r E1 E1 E1 r E1 E1 E1                   |
+  r E1 E1 E1 r E1 E1 E1 r E1 E1 E1 r E1 B1 E1                     |
+  r C2 C2 C2 r C2 C2 C2 r C2 C2 C2 r C2 C2 C2                     |
+  r C2 C2 C2 r C2 C2 C2 r C2 C2 C2 r C2 G1 C2                     |
+  r E1 E1 E1 r E1 E1 E1 r E1 E1 E1 r E1 E1 E1                     |
+  r E1 E1 E1 r E1 E1 E1 r E1 E1 E1 r E1 B1 E1                     |
+  r D1 D1 D1 r D1 D1 D1 r D1 D1 D1 r D1 D1 D1                     |
+  r D1 D1 D1 r D1 D1 D1 r D1 D1 D1 r D1 A1 D1                     |
+
+# Hypnotic 16th arp; the accent pattern shifts against the beat.
+pattern arp
+  E3:s@100 B3@70 G4@85 B3@70 E4@100 B3@70 G3@85 B3@70 E3@100 B3@70 G4@85 B3@70 E4@100 B3@70 G3@85 B3@70        |
+  E3@100 B3@70 G4@85 B3@70 E4@100 B3@70 G3@85 B3@70 E3@100 B3@70 G4@85 B3@70 E4@100 D4@70 B3@85 G3@70          |
+  C4@100 G3@70 E4@85 G3@70 C4@100 G3@70 E3@85 G3@70 C4@100 G3@70 E4@85 G3@70 C4@100 G3@70 E3@85 G3@70          |
+  C4@100 G3@70 E4@85 G3@70 C4@100 G3@70 E3@85 G3@70 C4@100 G3@70 E4@85 G3@70 C4@100 B3@70 G3@85 E3@70          |
+  E3@100 B3@70 G4@85 B3@70 E4@100 B3@70 G3@85 B3@70 E3@100 B3@70 G4@85 B3@70 E4@100 B3@70 G3@85 B3@70          |
+  E3@100 B3@70 G4@85 B3@70 E4@100 B3@70 G3@85 B3@70 E3@100 B3@70 G4@85 B3@70 E4@100 D4@70 B3@85 G3@70          |
+  D3@100 A3@70 F#4@85 A3@70 D4@100 A3@70 F#3@85 A3@70 D3@100 A3@70 F#4@85 A3@70 D4@100 A3@70 F#3@85 A3@70      |
+  D3@100 A3@70 F#4@85 A3@70 D4@100 A3@70 F#3@85 A3@70 D3@100 A3@70 F#4@85 A3@70 D4@100 C4@70 A3@85 F#3@70      |
+
+# The hook: sparse, the delay fills the gaps.
+pattern hook
+  B4:q. G4:e E4:h    | r:h B4:q D5:q      | C5:q. B4:e G4:h   | r:h A4:q B4:q      |
+  B4:q. G4:e E4:h    | r:h E5:q D5:q      | D5:q. A4:e F#4:h  | r:h. B4:q@70       |
+
+pattern hook_var
+  B4:q. G4:e E4:h    | r:h B4:q D5:q      | C5:q. B4:e G4:h   | r:h A4:q C5:q      |
+  B4:q. G4:e E4:h    | r:h E5:q G5:q      | F#5:q. D5:e A4:h  | r:h. A4:e@70 B4:e@70 |
+
+# Counter line for the second drop: eighths above the hook.
+pattern counter
+  E5:e B4 G4 B4 E5:q B4:q   | D5:e B4 G4 B4 D5:q B4:q   |
+  E5:e C5 G4 C5 E5:q C5:q   | G5:e E5 C5 E5 G5:q E5:q   |
+  E5:e B4 G4 B4 E5:q B4:q   | G5:e E5 B4 E5 G5:q E5:q   |
+  F#5:e D5 A4 D5 F#5:q D5:q | A5:e F#5 D5 F#5 A5:q F#5:q |
+
+# 303 bed: low root pulses with slides; the accents (!) are the small peaks.
+pattern acid
+  E1:s~ E1~ E1 r E1~ E1 r E1~ G1!~ E1 r E1~ E1 r r E1                       |
+  E1~ E1 r E1~ E1~ D1 r E1~ E1 r E1~ G1~ E1 r B0~ E1                        |
+  C2~ C2~ C2 r C2~ C2 r C2~ E2~ C2 r C2~ C2 r r C2                          |
+  C2~ C2 r C2~ C2~ B1 r C2~ C2 r C2~ E2!~ C2 r G1~ C2                       |
+  E1~ E1~ E1 r E1~ E1 r E1~ G1!~ E1 r E1~ E1 r r E1                         |
+  E1~ E1 r E1~ E1~ D1 r E1~ E1 r E1~ G1~ E1 r B0~ E1                        |
+  D1~ D1~ D1 r D1~ D1 r D1~ F#1~ D1 r D1~ D1 r r D1                         |
+  D1~ D1 r D1~ D1~ C1 r D1~ D1 r D1~ F#1!~ D1 r A0~ D1                      |
+
+# ------------------------------------------------------------ drums
+
+pattern intro_perc grid=1/16
+  hat     x.x.x.x.x.x.x.x.
+  openhat ..x...x...x...x.
+  rim     .......x......x.
+
+pattern kick_hats grid=1/16
+  kick    X...X...X...X...
+  openhat ..x...x...x...x.
+
+pattern groove grid=1/16
+  kick    X...X...X...X...
+  openhat ..x...x...x...x.
+  hat     x.x.x.x.x.x.x.x.
+  clap    ....x.......x...
+
+pattern groove_full grid=1/16
+  kick    X...X...X...X...
+  openhat ..x...x...x...x.
+  hat     x.x.x.x.x.x.x.x.
+  clap    ....X.......X...
+  ride    ..x...x...x...x.
+  rim     .......x......x.
+
+pattern groove_fill grid=1/16
+  kick    X...X...X...X...
+  openhat ..x...x...x.....
+  hat     x.x.x.x.x.x.x.x.
+  clap    ....X.......X...
+  snare   ............x6x9
+
+pattern groove_crash grid=1/16
+  kick    X...X...X...X...
+  openhat ..x...x...x...x.
+  hat     x.x.x.x.x.x.x.x.
+  clap    ....X.......X...
+  crash   X...............
+
+pattern break_perc grid=1/16
+  hat     x.x.x.x.x.x.x.x.
+  rim     .......x......x.
+
+pattern roll_q grid=1/16
+  snare 3...4...4...5...
+  hat   x.x.x.x.x.x.x.x.
+
+pattern roll_e grid=1/16
+  snare 5.5.6.6.6.6.7.7.
+  hat   x.x.x.x.x.x.x.x.
+
+pattern roll_up grid=1/16
+  snare 7777888899999999
+  kick  X.......X.......
+
+pattern break_hit grid=1/16
+  kick  X...............
+  crash X...............
+
+pattern rest_bar grid=1/16 bars=1
+  rim   ................
+
+pattern impact_note
+  E2:w
+
+pattern riser_note
+  E4:8/1
+
+# ------------------------------------------------------------ arrangement
+
+track drums
+  instrument kit
+  layer drums
+  gain -17
+  reverb 0.05
+  eq low=-2 lowfreq=70 high=+2 highfreq=7k
+  play intro_perc x8
+  play kick_hats x8
+  play groove x15
+  play groove_fill
+  play groove_full x7
+  play groove_fill
+  play groove_full x7
+  play groove_fill
+  play break_hit
+  play rest_bar x7
+  play break_perc x4
+  play roll_q x2
+  play roll_e
+  play roll_up
+  play groove_crash
+  play groove_full x6
+  play groove_fill
+  play groove_crash
+  play groove_full x6
+  play groove_fill
+  play groove_crash
+  play groove_full x6
+  play groove_fill
+  play groove_crash
+  play groove_full x6
+  play groove_fill
+  play break_hit
+  play rest_bar x7
+  play break_perc x4
+  play roll_q x2
+  play roll_e
+  play roll_up
+  play groove_crash
+  play groove_full x6
+  play groove_fill
+  play groove_crash
+  play groove_full x6
+  play groove_fill
+  play groove_crash
+  play groove_full x6
+  play groove_fill
+  play groove_crash
+  play groove_full x6
+  play groove_fill
+  play break_hit
+
+track rumble
+  instrument rumble
+  layer rumble
+  gain +2
+  sidechain drums depth=0.95 attack=2ms release=0.12
+  at 9
+  play rumble x40
+  at 65
+  play rumble x32
+  at 113
+  play rumble x32
+
+track bass
+  instrument bass
+  layer bass
+  gain -1.5
+  eq lowcut=30
+  sidechain drums depth=0.85 attack=3ms release=0.22
+  at 9
+  play bass x5
+  at 65
+  play bass x4
+  at 113
+  play bass x4
+
+track arp
+  instrument arp
+  layer arp
+  gain +5
+  pan -0.15
+  reverb 0.3
+  delay 0.4
+  eq lowcut=250 high=+2 highfreq=4k
+  chorus mix=0.25
+  sidechain drums depth=0.5 release=0.2
+  sweep cutoff from=350 to=700 bars=1-32
+  sweep cutoff from=700 to=3500 bars=33-48
+  sweep cutoff from=900 to=1200 bars=49-64
+  sweep cutoff from=1200 to=4000 bars=65-96
+  sweep cutoff from=700 to=4500 bars=97-112
+  sweep cutoff from=4500 to=5000 bars=113-144
+  play arp x2 vel=0.6
+  play arp x2
+  play arp x2
+  play arp x2 vel=0.7
+  play arp x4
+  play arp x2 vel=0.7
+  play arp x4
+
+track pad
+  instrument pad
+  layer pad
+  gain -3
+  reverb 0.55
+  eq lowcut=150 high=+2 highfreq=5k
+  chorus mix=0.5
+  sidechain drums depth=0.75 release=0.3
+  sweep cutoff from=450 to=800 bars=1-32
+  play chords x4
+  play chords x2
+  play chords_high x2
+  play chords x4
+  play chords_high x2
+  play chords x4
+  play chords_high
+
+track lead
+  instrument lead
+  layer lead
+  gain +4
+  pan 0.1
+  reverb 0.45
+  delay 0.5
+  eq lowcut=300 high=+3 highfreq=5k
+  chorus mix=0.3
+  sidechain drums depth=0.35
+  at 49
+  play hook
+  play hook_var
+  at 73
+  play hook
+  play hook_var
+  play hook
+  at 97
+  play hook
+  play hook_var
+  at 121
+  play hook
+  play hook_var
+  play hook
+
+track counter
+  instrument counter
+  layer lead
+  gain -9
+  pan -0.25
+  reverb 0.4
+  delay 0.3
+  eq lowcut=400 high=+2 highfreq=5k
+  sidechain drums depth=0.35
+  at 129
+  play counter x2
+
+track acid
+  instrument acid
+  layer acid
+  gain -15
+  pan 0.2
+  reverb 0.3
+  delay 0.3
+  eq lowcut=80 highcut=4k
+  sidechain drums depth=0.5 release=0.15
+  sweep cutoff from=0.12 to=0.22 bars=81-96
+  sweep cutoff from=0.15 to=0.3 bars=129-144
+  at 81
+  play acid x2
+  at 129
+  play acid x2
+
+track riser
+  instrument riser
+  layer fx
+  gain +2
+  reverb 0.4
+  sweep cutoff from=200 to=5000 bars=57-64
+  sweep cutoff from=200 to=5000 bars=105-112
+  at 57
+  play riser_note
+  at 105
+  play riser_note
+
+track impact
+  instrument impact
+  layer fx
+  gain -4
+  reverb 0.6
+  at 49
+  play impact_note
+  at 65
+  play impact_note
+  at 97
+  play impact_note
+  at 113
+  play impact_note
+  at 145
+  play impact_note
+
+master preset techno
+  gain 2

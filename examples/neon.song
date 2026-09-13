@@ -1,0 +1,382 @@
+# Neon — K-pop girl-group style (Blackpink era): trap-flavoured verses on an
+# 808, a building pre-chorus, a brass-stab EDM drop for the chorus, a chanted
+# synth hook in the post-chorus, a stripped bridge and a final double chorus.
+# Original. C minor, 128 BPM; verses feel half-time.
+#
+# Built from presets only (`mat presets`); no external content needed.
+# Layers (stems): drums, sub, bass, chords, brass, hook, chop, lead, fx
+
+title "Neon"
+tempo 128
+meter 4/4
+
+section intro      bars=1-8
+section verse      bars=9-24
+section prechorus  bars=25-32
+section chorus     bars=33-48
+section postchorus bars=49-56
+section verse2     bars=57-72
+section prechorus2 bars=73-80
+section chorus2    bars=81-96
+section bridge     bars=97-104
+section chorus3    bars=105-120
+section outro      bars=121-124
+
+# ------------------------------------------------------------ instruments
+
+instrument kit preset trap-kit
+instrument sub preset sub-808
+instrument bass preset rolling-bass
+  filter lowpass cutoff=400 res=0.2 env=2 drive=0.4
+instrument chords preset organ-stab
+instrument brass preset brass-stab
+instrument hook preset pop-pluck
+instrument chop preset vocal-chop
+instrument lead preset supersaw-lead
+  filter lowpass cutoff=4000 res=0.1 env=1 keytrack=0.3
+instrument pad preset dream-pad
+  filter lowpass cutoff=800 res=0.1 keytrack=0.3
+instrument riser preset riser
+instrument impact preset impact
+
+# ------------------------------------------------------------ harmony
+# Cm | Ab | Eb | Bb (i VI III VII), one bar each.
+
+pattern chords
+  [C4 Eb4 G4]:e r [C4 Eb4 G4] r r [C4 Eb4 G4] r r     |
+  [C4 Eb4 Ab4]:e r [C4 Eb4 Ab4] r r [C4 Eb4 Ab4] r r  |
+  [Bb3 Eb4 G4]:e r [Bb3 Eb4 G4] r r [Bb3 Eb4 G4] r r  |
+  [Bb3 D4 F4]:e r [Bb3 D4 F4] r r [Bb3 D4 F4] r r     |
+
+pattern pad_chords
+  [C4 Eb4 G4]:w | [Ab3 C4 Eb4]:w | [Eb4 G4 Bb4]:w | [Bb3 D4 F4]:w |
+
+# Verse: half-time 808 with the classic pop-trap bounce.
+pattern sub_verse
+  C2:q. r:e r:q C2:e C2  | Ab1:q. r:e r:h       |
+  Eb2:q. r:e r:q Eb2:e Eb2 | Bb1:q. r:e Bb1:q r:q |
+
+# Chorus: driving offbeat bass.
+pattern bass
+  r:s C2 C2 C2 r C2 C2 C2 r C2 C2 C2 r C2 C2 C2           |
+  r Ab1 Ab1 Ab1 r Ab1 Ab1 Ab1 r Ab1 Ab1 Ab1 r Ab1 Ab1 Ab1 |
+  r Eb2 Eb2 Eb2 r Eb2 Eb2 Eb2 r Eb2 Eb2 Eb2 r Eb2 Eb2 Eb2 |
+  r Bb1 Bb1 Bb1 r Bb1 Bb1 Bb1 r Bb1 Bb1 Bb1 r Bb1 Bb1 Bb1 |
+
+# Brass stabs: the chorus's rhythmic hook.
+pattern brass
+  [C4 Eb4 G4 C5]:e! r r [C4 Eb4 G4 C5] r [C4 Eb4 G4 C5]:q r:e     |
+  [C4 Eb4 Ab4 C5]:e! r r [C4 Eb4 Ab4 C5] r [Eb4 Ab4 C5]:q r:e     |
+  [Bb3 Eb4 G4 Bb4]:e! r r [Bb3 Eb4 G4 Bb4] r [Eb4 G4 Bb4]:q r:e   |
+  [Bb3 D4 F4 Bb4]:e! r r [Bb3 D4 F4 Bb4] r [D4 F4 Bb4]:e F5:e Bb4:e |
+
+# Chorus melody: short, catchy, lots of repetition.
+pattern chorus_melody
+  G4:e G4 G4:q Eb5:e C5 G4:q      | Ab4:e Ab4 Ab4:q C5:e Eb5 Ab4:q |
+  G4:e G4 G4:q Bb4:e G4 Eb5:q     | F5:e Eb5 D5:q Bb4:h            |
+
+# Post-chorus chant hook (the "na-na" line), on the vocal chop.
+pattern chant
+  C5:s C5 r C5 r C5 C5 r Eb5:s Eb5 r C5 r Bb4 Bb4 r     |
+  Ab4:s Ab4 r Ab4 r C5 C5 r Eb5:e r:e C5:e r:e         |
+  G4:s G4 r G4 r Bb4 Bb4 r Eb5:s Eb5 r D5 r C5 C5 r     |
+  F5:s F5 r Eb5 r D5 D5 r Bb4:e r:e F4:q               |
+
+# Verse melody: lower, rhythmic, half-time.
+pattern verse_melody
+  C5:e Bb4 G4:q r:e G4 Bb4 C5   | r:q C5:e Bb4 Ab4:q r:q        |
+  Eb5:e D5 Bb4:q r:e Bb4 C5 D5  | r:q D5:e C5 Bb4:q r:q         |
+
+pattern bridge_melody
+  Eb5:q. C5:e G4:h  | r:h Ab4:q Bb4:q | C5:q. Bb4:e G4:h | r:h. G4:q@70 |
+
+pattern impact_note
+  C2:w
+
+pattern riser_note
+  C4:8/1
+
+pattern stab_end
+  [C3 G3 C4 Eb4 G4 C5]:h@120! r:h |
+
+# ------------------------------------------------------------ drums
+
+# Trap verse: half-time snare on 3, rolling hats with triplet-ish bursts.
+pattern trap grid=1/16
+  kick    X.......X..X....
+  snare   ........X.......
+  hat     x.x.x.xxx.x.x.xx
+  openhat ..............x.
+
+pattern trap_roll grid=1/32
+  kick    X...............X.....X.........
+  snare   ................X...............
+  hat     x...x...x...x...x.x.x.x.xxxxxxxx
+
+pattern build grid=1/16
+  kick    X...X...X...X...
+  clap    ....X.......X...
+  hat     x.x.x.x.x.x.x.x.
+
+pattern roll_e grid=1/16
+  snare 5.5.6.6.6.6.7.7.
+  kick  X.......X.......
+
+pattern roll_s grid=1/16
+  snare 6666777788889999
+
+pattern roll_up grid=1/16
+  snare 7777888899999999
+  kick  X.......X.......
+
+pattern drop grid=1/16
+  kick    X...X...X...X...
+  clap    ....X.......X...
+  openhat ..x...x...x...x.
+  hat     x.x.x.x.x.x.x.x.
+
+pattern drop_fill grid=1/16
+  kick    X...X...X...X...
+  clap    ....X.......X...
+  openhat ..x...x...x.....
+  hat     x.x.x.x.x.x.x.x.
+  snare   ............x6x9
+
+pattern drop_crash grid=1/16
+  kick    X...X...X...X...
+  clap    ....X.......X...
+  openhat ..x...x...x...x.
+  hat     x.x.x.x.x.x.x.x.
+  crash   X...............
+
+pattern post grid=1/16
+  kick    X.......X.......
+  clap    ....X.......X...
+  hat     x.x.x.x.x.x.x.x.
+  rim     ..x...x...x...x.
+
+pattern bridge_perc grid=1/16
+  hat     ....x.......x...
+  rim     ..x.......x.....
+
+pattern break_hit grid=1/16
+  kick  X...............
+  crash X...............
+
+# ------------------------------------------------------------ arrangement
+
+track drums
+  instrument kit
+  layer drums
+  gain -12
+  reverb 0.05
+  eq high=+2 highfreq=7k
+  at 5
+  play trap x3
+  play trap_roll
+  play trap x7
+  play trap_roll
+  play trap x7
+  play trap_roll
+  play build x4
+  play roll_e x2
+  play roll_s
+  play roll_up
+  play drop_crash
+  play drop x6
+  play drop_fill
+  play drop_crash
+  play drop x6
+  play drop_fill
+  play post x8
+  play trap x7
+  play trap_roll
+  play trap x7
+  play trap_roll
+  play build x4
+  play roll_e x2
+  play roll_s
+  play roll_up
+  play drop_crash
+  play drop x6
+  play drop_fill
+  play drop_crash
+  play drop x6
+  play drop_fill
+  play bridge_perc x4
+  play build x2
+  play roll_s
+  play roll_up
+  play drop_crash
+  play drop x6
+  play drop_fill
+  play drop_crash
+  play drop x6
+  play drop_fill
+  play break_hit
+
+track sub
+  instrument sub
+  layer sub
+  gain -7
+  eq lowcut=25
+  sidechain drums depth=0.5 release=0.12
+  at 9
+  play sub_verse x4
+  at 57
+  play sub_verse x4
+  at 97
+  play sub_verse x2
+
+track bass
+  instrument bass
+  layer bass
+  gain -7
+  eq lowcut=30
+  sidechain drums depth=0.8 release=0.2
+  at 25
+  play bass x2
+  play bass x4
+  at 73
+  play bass x2
+  play bass x4
+  at 105
+  play bass x4
+
+track chords
+  instrument chords
+  layer chords
+  gain -9
+  pan -0.2
+  reverb 0.3
+  delay 0.2
+  eq lowcut=200
+  sidechain drums depth=0.5
+  play chords x2 vel=0.7
+  play chords x4
+  at 33
+  play chords x4
+  at 49
+  play chords x2
+  at 57
+  play chords x4
+  at 81
+  play chords x4
+  at 97
+  play chords x2 vel=0.6
+  at 105
+  play chords x4
+
+track pad
+  instrument pad
+  layer chords
+  gain -10
+  reverb 0.5
+  eq lowcut=250
+  chorus mix=0.5
+  sidechain drums depth=0.6 release=0.25
+  play pad_chords x2
+  at 25
+  play pad_chords x2
+  at 73
+  play pad_chords x2
+  at 97
+  play pad_chords x2
+
+track brass
+  instrument brass
+  layer brass
+  gain -6
+  reverb 0.25
+  eq lowcut=150 high=+2 highfreq=5k
+  sidechain drums depth=0.6 release=0.15
+  at 33
+  play brass x4
+  at 81
+  play brass x4
+  at 105
+  play brass x4
+
+track hook
+  instrument hook
+  layer hook
+  gain 0
+  pan 0.1
+  reverb 0.3
+  delay 0.3
+  eq lowcut=300 high=+3 highfreq=5k
+  sidechain drums depth=0.4
+  at 1
+  play chorus_melody vel=0.7
+  at 33
+  play chorus_melody x4
+  at 81
+  play chorus_melody x4
+  at 105
+  play chorus_melody x4
+  at 121
+  play stab_end
+
+track chop
+  instrument chop
+  layer chop
+  gain +3
+  pan -0.15
+  reverb 0.35
+  delay 0.25
+  eq lowcut=300 high=+2 highfreq=5k
+  sidechain drums depth=0.4
+  at 9
+  play verse_melody x2
+  play verse_melody x2 vel=0.85
+  at 49
+  play chant x2
+  at 57
+  play verse_melody x4
+  at 97
+  play bridge_melody
+
+track lead
+  instrument lead
+  layer lead
+  gain -8
+  pan 0.2
+  reverb 0.35
+  delay 0.25
+  eq lowcut=300 high=+3 highfreq=4k
+  chorus mix=0.25
+  sidechain drums depth=0.35
+  at 105
+  play chorus_melody x4 transpose=12
+
+track riser
+  instrument riser
+  layer fx
+  gain 0
+  reverb 0.4
+  sweep cutoff from=250 to=5000 bars=25-32
+  sweep cutoff from=250 to=5000 bars=73-80
+  sweep cutoff from=250 to=5000 bars=101-104
+  at 25
+  play riser_note
+  at 73
+  play riser_note
+  at 101
+  play riser_note
+
+track impact
+  instrument impact
+  layer fx
+  gain -5
+  reverb 0.6
+  at 33
+  play impact_note
+  at 49
+  play impact_note
+  at 81
+  play impact_note
+  at 105
+  play impact_note
+
+master preset pop
+  gain 2

@@ -268,7 +268,6 @@ impl Parser {
 
     fn synth_body(&mut self, block: &Block) -> SynthDef {
         let mut def = SynthDef::default();
-        let mut filter_seen = false;
         for line in &block.body {
             let kw = &line.tokens[0];
             match kw.text.as_str() {
@@ -327,23 +326,27 @@ impl Parser {
                     self.extra_tokens(line, 2);
                 }
                 "filter" => {
-                    if filter_seen {
-                        self.err(kw.span, "only one filter per instrument is supported");
-                    }
-                    filter_seen = true;
                     let Some(mt) = self.arg(line, 1, "filter mode") else { continue };
-                    def.filter.mode = match mt.text.as_str() {
+                    let mode = match mt.text.as_str() {
                         "lowpass" | "lp" => FilterMode::Lowpass,
                         "highpass" | "hp" => FilterMode::Highpass,
                         "bandpass" | "bp" => FilterMode::Bandpass,
-                        "off" => FilterMode::Off,
+                        "off" => {
+                            // `filter off` removes every filter (e.g. from a preset).
+                            def.filters.clear();
+                            self.extra_tokens(line, 2);
+                            continue;
+                        }
                         other => {
                             self.err_hint(mt.span, format!("unknown filter mode '{other}'"), "expected one of: lowpass, highpass, bandpass, off");
                             continue;
                         }
                     };
+                    // Filters chain in series; a line with an existing mode replaces that stage.
+                    let mut f = Filter { mode, ..Filter::default() };
+                    let existing = def.filters.iter().position(|x| x.mode == mode);
                     for (key, val, tok) in self.options(line, 2) {
-                        let f = &mut def.filter;
+                        let f = &mut f;
                         match key {
                             "cutoff" => set(&mut f.cutoff_hz, self.hz(tok, val)),
                             "res" | "resonance" => set(&mut f.resonance, self.value(tok, val, 0.0, 1.0)),
@@ -352,6 +355,10 @@ impl Parser {
                             "drive" => set(&mut f.drive, self.value(tok, val, 0.0, 1.0)),
                             _ => self.unknown_option(tok, key, "filter", &["cutoff", "res", "env", "keytrack", "drive"]),
                         }
+                    }
+                    match existing {
+                        Some(i) => def.filters[i] = f,
+                        None => def.filters.push(f),
                     }
                 }
                 "amp" | "fenv" => {

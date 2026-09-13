@@ -200,7 +200,8 @@ pub struct Lfo {
 pub struct SynthDef {
     pub oscillators: Vec<Oscillator>,
     pub noise: f32,
-    pub filter: Filter,
+    /// Filters in series. A `filter` line with the mode of an existing one replaces it.
+    pub filters: Vec<Filter>,
     pub amp: Adsr,
     pub filter_env: Adsr,
     pub vibrato: Vibrato,
@@ -214,7 +215,7 @@ impl Default for SynthDef {
         Self {
             oscillators: Vec::new(),
             noise: 0.0,
-            filter: Filter::default(),
+            filters: Vec::new(),
             amp: Adsr { attack: 0.005, decay: 0.2, sustain: 0.8, release: 0.2 },
             filter_env: Adsr { attack: 0.005, decay: 0.3, sustain: 0.0, release: 0.3 },
             vibrato: Vibrato::default(),

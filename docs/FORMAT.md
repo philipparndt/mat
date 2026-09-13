@@ -110,7 +110,7 @@ instrument lead synth
 | `osc <sine\|triangle\|saw\|square>` | `level` 0–4, `octave` ±4, `semi` ±24, `detune` cents, `voices` 1–16 (unison), `spread` cents, `width` 0–1 |
 | `osc supersaw` | JP-8000 style: `detune` 0–1 (0.5 ≈ classic trance), `mix` 0–1 (center vs. detuned saws), plus `level`, `octave`, `semi`, `width` |
 | `noise <level>` | 0–1 |
-| `filter <lowpass\|highpass\|bandpass\|off>` | `cutoff` Hz (`1.2k` works), `res` 0–1, `env` octaves of filter-envelope sweep, `keytrack` 0–1, `drive` 0–1 |
+| `filter <lowpass\|highpass\|bandpass>` | `cutoff` Hz (`1.2k` works), `res` 0–1, `env` octaves of filter-envelope sweep, `keytrack` 0–1, `drive` 0–1. Several `filter` lines chain in series; a line with the mode of an existing one replaces that stage (that's how you override a preset's filter); `filter off` removes them all |
 | `amp` / `fenv` | `attack` `decay` `release` in seconds (or `ms`), `sustain` 0–1 |
 | `vibrato` | `rate` Hz, `depth` cents, `delay` seconds |
 | `lfo <filter\|pitch\|pan\|amp\|width>` | `rate` Hz, `depth` (filter: octaves, pitch: cents, others 0–1), `fade` seconds, `phase` 0–1 (random per note if omitted); one line per LFO |
