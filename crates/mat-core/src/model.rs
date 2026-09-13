@@ -330,7 +330,11 @@ pub struct SamplesDef {
 /// A turntable: one audio region that scratch moves play forward and back.
 #[derive(Debug, Clone, Serialize)]
 pub struct ScratchDef {
+    /// Audio file, or empty when `source_track` is set.
     pub path: String,
+    /// Scratch another track's audio instead of a file (bars converted to
+    /// `start`/`length` seconds during arrangement).
+    pub source_track: Option<String>,
     pub start: f64,
     pub length: Option<f64>,
     /// How far the record travels per move, 1 = normal playback speed on average.

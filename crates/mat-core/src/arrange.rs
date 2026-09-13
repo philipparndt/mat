@@ -285,6 +285,19 @@ pub fn arrange(song: &Song) -> Result<Timeline, Vec<Diagnostic>> {
         tracks[index].duck = Some(Duck { depth: sc.depth, attack: sc.attack, release: sc.release, times });
     }
 
+    // Scratch sources: bars → seconds, and the source track must exist.
+    for i in 0..tracks.len() {
+        if let InstrumentKind::Scratch(def) = &mut tracks[i].instrument
+            && let Some(src) = def.source_track.clone()
+        {
+            let from_bar = def.start;
+            def.start = song.seconds((from_bar - 1.0) * bar);
+            def.length = def.length.map(|bars| song.seconds(bars * bar));
+            if src != "mix" && !song.tracks.iter().any(|t| t.name == src) {
+                diags.push(Diagnostic::error(Span::default(), format!("scratch source: no track named '{src}'")));
+            }
+        }
+    }
     if let Some(sc) = &song.master.sidechain
         && !tracks.iter().any(|t| t.name == sc.source || t.layer == sc.source)
     {
@@ -385,7 +398,7 @@ pub fn resolve_paths(timeline: &mut Timeline, song_dir: &Path) {
                 }
             }
             InstrumentKind::Audio(a) => a.path = resolve_load_path(&a.path, song_dir),
-            InstrumentKind::Scratch(s) => s.path = resolve_load_path(&s.path, song_dir),
+            InstrumentKind::Scratch(s) if s.source_track.is_none() => s.path = resolve_load_path(&s.path, song_dir),
             InstrumentKind::Clap(c) => c.patch = c.patch.as_deref().map(|p| resolve_load_path(p, song_dir)),
             _ => {}
         }

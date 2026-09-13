@@ -76,6 +76,44 @@ pub fn render(timeline: &Timeline, sample_rate: u32, mut stems: HashMap<usize, S
             Err(e) => warnings.push(format!("track '{}': {e}", timeline.tracks[ti].name)),
         }
     }
+    // Scratch tracks that use another track as their record come last: they
+    // need that track's dry audio.
+    for (ti, track) in timeline.tracks.iter().enumerate() {
+        let InstrumentKind::Scratch(def) = &track.instrument else { continue };
+        let Some(src_name) = &def.source_track else { continue };
+        let source_clips: Vec<&StereoClip> = if src_name == "mix" {
+            rendered
+                .iter()
+                .filter(|(i, _)| !matches!(timeline.tracks[*i].instrument, InstrumentKind::Scratch(_)))
+                .flat_map(|(_, c)| c.iter())
+                .collect()
+        } else {
+            let Some(si) = timeline.tracks.iter().position(|t| &t.name == src_name) else { continue };
+            match rendered.iter().find(|(i, _)| *i == si) {
+                Some((_, clips)) => clips.iter().collect(),
+                None => {
+                    warnings.push(format!("track '{}': source track '{src_name}' has no audio", track.name));
+                    continue;
+                }
+            }
+        };
+        let from = (def.start * sr as f64) as usize;
+        let n = (def.length.unwrap_or(1.0) * sr as f64) as usize;
+        let mut region = (vec![0.0f32; n], vec![0.0f32; n]);
+        for clip in source_clips {
+            for (i, (l, r)) in clip.left.iter().zip(&clip.right).enumerate() {
+                let idx = clip.offset + i;
+                if idx >= from && idx < from + n {
+                    region.0[idx - from] += l;
+                    region.1[idx - from] += r;
+                }
+            }
+        }
+        match crate::instruments::scratch::render_region(def, region.0, region.1, sr as f64, &track.notes, sr) {
+            Ok(clips) => rendered.push((ti, clips)),
+            Err(e) => warnings.push(format!("track '{}': {e}", track.name)),
+        }
+    }
     for (ti, track) in timeline.tracks.iter().enumerate() {
         if let InstrumentKind::AudioUnit(au) = &track.instrument {
             match stems.remove(&ti) {
@@ -268,7 +306,8 @@ fn render_track(track: &TimelineTrack, track_index: usize, sr: f32) -> Option<Re
             Sampler::load(std::path::Path::new(&def.load)).and_then(|sampler| sampler.render(&track.notes, def, sr)),
         ),
         InstrumentKind::Samples(def) => Some(Sampler::from_zones(&def.zones).and_then(|sampler| sampler.render(&track.notes, &def.settings, sr))),
-        InstrumentKind::Scratch(def) => Some(crate::instruments::scratch::render(def, &track.notes, sr)),
+        InstrumentKind::Scratch(def) if def.source_track.is_none() => Some(crate::instruments::scratch::render(def, &track.notes, sr)),
+        InstrumentKind::Scratch(_) => None,
         InstrumentKind::Synth(def) => Some(Ok(
             track
                 .notes

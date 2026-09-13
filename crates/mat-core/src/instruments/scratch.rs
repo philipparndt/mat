@@ -19,11 +19,25 @@ pub fn render(def: &ScratchDef, notes: &[TimedNote], sample_rate: f32) -> Result
     if end <= start + 64 {
         return Err(format!("scratch region in {} is empty", def.path));
     }
-    let pad = (sinc::HALF_WIDTH * 4) as i64;
-    let (left, right) = file.read_stereo(start - pad, end + pad)?;
-    let region_len = (end - start) as f64;
-    let gain = db_to_gain(def.gain_db);
+    let (left, right) = file.read_stereo(start, end)?;
+    render_region(def, left, right, rate, notes, sample_rate)
+}
 
+/// Renders scratch moves on an in-memory record (`rate` = its sample rate).
+pub fn render_region(def: &ScratchDef, left: Vec<f32>, right: Vec<f32>, rate: f64, notes: &[TimedNote], sample_rate: f32) -> Result<Vec<StereoClip>, String> {
+    if left.len() < 64 {
+        return Err("scratch region is empty".into());
+    }
+    let pad = (sinc::HALF_WIDTH * 4) as i64;
+    let padded = |v: &Vec<f32>| {
+        let mut p = vec![0.0f32; pad as usize];
+        p.extend_from_slice(v);
+        p.extend(std::iter::repeat_n(0.0f32, pad as usize));
+        p
+    };
+    let (left, right) = (padded(&left), padded(&right));
+    let region_len = (left.len() as i64 - 2 * pad) as f64;
+    let gain = db_to_gain(def.gain_db);
     Ok(notes
         .par_iter()
         .filter_map(|note| {

@@ -149,7 +149,21 @@ fn run(cli: Cli) -> anyhow::Result<ExitCode> {
                 let mut written = Vec::new();
                 for layer in &layers {
                     let mut solo = timeline.clone();
-                    solo.tracks.retain(|t| &t.layer == layer);
+                    let sources: Vec<String> = solo
+                        .tracks
+                        .iter()
+                        .filter(|t| &t.layer == layer)
+                        .filter_map(|t| match &t.instrument {
+                            InstrumentKind::Scratch(d) => d.source_track.clone(),
+                            _ => None,
+                        })
+                        .collect();
+                    solo.tracks.retain(|t| &t.layer == layer || sources.contains(&t.name));
+                    for t in &mut solo.tracks {
+                        if &t.layer != layer {
+                            t.gain_db = -200.0; // rendered as a scratch source, inaudible in the stem
+                        }
+                    }
                     let (mut audio, _) = mat_core::render(&solo, sample_rate, HashMap::new());
                     if let Some(secs) = loop_seconds {
                         mat_core::render::fold_loop(&mut audio, secs);

@@ -494,10 +494,32 @@ impl Parser {
     }
 
     fn scratch_body(&mut self, block: &Block) -> Option<ScratchDef> {
-        let mut def = ScratchDef { path: String::new(), start: 0.0, length: None, speed: 1.0, gain_db: 0.0 };
+        let mut def = ScratchDef { path: String::new(), source_track: None, start: 0.0, length: None, speed: 1.0, gain_db: 0.0 };
         for line in &block.body {
             let kw = &line.tokens[0];
             match kw.text.as_str() {
+                "source" => {
+                    let Some(t) = self.arg(line, 1, "track name") else { continue };
+                    def.source_track = Some(t.text.clone());
+                    let mut have_bars = false;
+                    for (key, val, tok) in self.options(line, 2) {
+                        match key {
+                            "bars" => match val.split_once('-').and_then(|(a, b)| Some((a.parse::<f64>().ok()?, b.parse::<f64>().ok()?))) {
+                                Some((a, b)) if a >= 1.0 && b >= a => {
+                                    // Stored as bars here; arrangement converts to seconds.
+                                    def.start = a;
+                                    def.length = Some(b - a + 1.0);
+                                    have_bars = true;
+                                }
+                                _ => self.err_hint(tok.span, format!("invalid bar range '{val}'"), "write it like bars=49-49"),
+                            },
+                            _ => self.unknown_option(tok, key, "source", &["bars"]),
+                        }
+                    }
+                    if !have_bars {
+                        self.err_hint(kw.span, "source needs bars=<from>-<to>", "for example: source lead bars=49-50");
+                    }
+                }
                 "sample" => {
                     let Some(file) = self.arg(line, 1, "audio file path") else { continue };
                     def.path = file.text.clone();
@@ -520,11 +542,11 @@ impl Parser {
                     if kw.text == "speed" { set(&mut def.speed, self.value(t, &t.text, 0.2, 4.0)) } else { set(&mut def.gain_db, self.db(t, &t.text)) }
                     self.extra_tokens(line, 2);
                 }
-                other => self.unknown_keyword(kw, other, "scratch instruments", &["sample", "speed", "gain"]),
+                other => self.unknown_keyword(kw, other, "scratch instruments", &["sample", "source", "speed", "gain"]),
             }
         }
-        if def.path.is_empty() {
-            self.err_hint(block.header.tokens[1].span, "scratch instrument has no sample", "add a line: sample \"vocal.wav\" at=0.2s length=0.6s");
+        if def.path.is_empty() && def.source_track.is_none() {
+            self.err_hint(block.header.tokens[1].span, "scratch instrument has no record", "add: sample \"vocal.wav\" at=0.2s length=0.6s, or: source lead bars=49-49");
             return None;
         }
         Some(def)

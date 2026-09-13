@@ -167,7 +167,9 @@ Drum lines use the drum names; `note <root>` lines are pitched across `keys=`
 
 ```
 instrument dj scratch
-  sample "vocal.wav" at=0.2s length=0.6s   # the bit of record under the needle
+  sample "vocal.wav" at=0.2s length=0.6s   # the bit of record under the needle ...
+  source lead bars=49-49                   # ... or another track of this song (its dry audio),
+                                           #     or `source mix bars=8-8` for everything but scratches
   speed 1.2                                # how far it travels per move
   gain -3
 ```
