@@ -120,6 +120,9 @@ pub fn render(timeline: &Timeline, sample_rate: u32, mut stems: HashMap<usize, S
     let len = content_end + (tail_seconds * sr as f64) as usize;
 
     let mut mix = [vec![0.0f32; len], vec![0.0f32; len]];
+    // With a master sidechain, the key tracks are collected separately.
+    let key_source = master.sidechain.as_ref().map(|s| s.source.clone());
+    let mut key_mix = [vec![0.0f32; if key_source.is_some() { len } else { 0 }], vec![0.0f32; if key_source.is_some() { len } else { 0 }]];
     let mut reverb_bus = [vec![0.0f32; len], vec![0.0f32; len]];
     let mut delay_bus = [vec![0.0f32; len], vec![0.0f32; len]];
 
@@ -140,6 +143,9 @@ pub fn render(timeline: &Timeline, sample_rate: u32, mut stems: HashMap<usize, S
         }
         if let Some(eq) = &track.eq {
             apply_eq(eq, &mut left, &mut right, sr);
+        }
+        if let Some(comp) = &track.comp {
+            crate::dsp::dynamics::compress(comp, &mut left, &mut right, sr);
         }
         if let Some(chorus) = &track.chorus {
             apply_chorus(chorus, &mut left, &mut right, sr);
@@ -168,11 +174,13 @@ pub fn render(timeline: &Timeline, sample_rate: u32, mut stems: HashMap<usize, S
         let gain = db_to_gain(track.gain_db);
         let (pl, pr) = pan_gains(track.pan);
         let (gl, gr) = (gain * pl, gain * pr);
+        let is_key = key_source.as_ref().is_some_and(|k| &track.name == k || &track.layer == k);
+        let target = if is_key { &mut key_mix } else { &mut mix };
         for (i, (l, r)) in left.iter().zip(&right).enumerate() {
             let idx = start + i;
             let (l, r) = (l * gl, r * gr);
-            mix[0][idx] += l;
-            mix[1][idx] += r;
+            target[0][idx] += l;
+            target[1][idx] += r;
             reverb_bus[0][idx] += l * track.reverb;
             reverb_bus[1][idx] += r * track.reverb;
             delay_bus[0][idx] += l * track.delay;
@@ -215,6 +223,15 @@ pub fn render(timeline: &Timeline, sample_rate: u32, mut stems: HashMap<usize, S
     }
 
     let [mut left, mut right] = mix;
+    if let Some(sc) = &master.sidechain {
+        crate::dsp::dynamics::keyed_compress(sc, &key_mix[0], &key_mix[1], &mut left, &mut right, sr);
+        for ch in 0..2 {
+            let dst = if ch == 0 { &mut left } else { &mut right };
+            for (d, k) in dst.iter_mut().zip(&key_mix[ch]) {
+                *d += k;
+            }
+        }
+    }
     let master_gain = db_to_gain(master.gain_db);
     for s in left.iter_mut().chain(right.iter_mut()) {
         *s *= master_gain;

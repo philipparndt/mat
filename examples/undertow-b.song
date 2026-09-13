@@ -176,6 +176,7 @@ track drums
   gain -17
   reverb 0.05
   eq low=-2 lowfreq=70 high=+2 highfreq=7k
+  comp threshold=-14 ratio=4 attack=6ms release=110ms makeup=4 mode=feedback
   play intro_perc x8
   play kick_hats x8
   play groove x15
@@ -291,7 +292,7 @@ track pad
 track lead
   instrument lead
   layer lead
-  gain -4
+  gain -8
   pan 0.1
   reverb 0.45
   delay 0.5
@@ -331,7 +332,7 @@ track counter
 track acid
   instrument acid
   layer acid
-  gain -15
+  gain -11
   pan 0.2
   reverb 0.3
   delay 0.3
@@ -374,3 +375,4 @@ track impact
 
 master preset techno
   gain 2
+  sidechain drums threshold=-22 ratio=8 attack=1ms release=140ms darken=1.5

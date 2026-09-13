@@ -507,6 +507,7 @@ pub struct Track {
     /// Grid the swing acts on, in whole notes (default 1/16).
     pub swing_grid: Option<Whole>,
     pub humanize: Option<Humanize>,
+    pub comp: Option<CompSettings>,
     /// Stem group for `mat render --stems`; defaults to the track name.
     pub layer: Option<String>,
     pub eq: Option<EqSettings>,
@@ -549,11 +550,28 @@ pub struct CompSettings {
     pub attack: f32,
     pub release: f32,
     pub makeup_db: f32,
+    /// Feedback topology: the detector listens after the gain stage, which
+    /// reacts more gently and pumps musically (vintage style).
+    pub feedback: bool,
+}
+
+/// Keyed compression on the master: the named track (or layer) is the key,
+/// everything else is compressed and, with `darken`, low-passed on every hit.
+#[derive(Debug, Clone, Serialize)]
+pub struct MasterSidechain {
+    pub source: String,
+    pub threshold_db: f32,
+    pub ratio: f32,
+    pub attack: f32,
+    pub release: f32,
+    /// Octaves the lowpass drops per 12 dB of gain reduction (0 = off).
+    pub darken: f32,
 }
 
 #[derive(Debug, Clone, Serialize)]
 pub struct Master {
     pub gain_db: f32,
+    pub sidechain: Option<MasterSidechain>,
     pub eq: Option<EqSettings>,
     /// Stereo width: 1 = as mixed, 0 = mono, up to 2.
     pub width: f32,
@@ -569,6 +587,7 @@ impl Default for Master {
     fn default() -> Self {
         Self {
             gain_db: 0.0,
+            sidechain: None,
             eq: None,
             width: 1.0,
             comp: None,

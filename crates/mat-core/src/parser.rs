@@ -1002,6 +1002,7 @@ impl Parser {
             swing: None,
             swing_grid: None,
             humanize: None,
+            comp: None,
             layer: None,
             eq: None,
             chorus: None,
@@ -1077,6 +1078,7 @@ impl Parser {
                     track.audio = Some((source, t.span));
                 }
                 "eq" => track.eq = Some(self.eq_options(line)),
+                "comp" => track.comp = self.comp_options(line),
                 "chorus" => {
                     let mut chorus = ChorusSettings::default();
                     for (key, val, tok) in self.options(line, 1) {
@@ -1184,7 +1186,7 @@ impl Parser {
                     kw,
                     other,
                     "tracks",
-                    &["instrument", "audio", "layer", "gain", "pan", "reverb", "delay", "eq", "chorus", "sidechain", "sweep", "swing", "humanize", "mute", "play", "rest", "at"],
+                    &["instrument", "audio", "layer", "gain", "pan", "reverb", "delay", "eq", "comp", "chorus", "sidechain", "sweep", "swing", "humanize", "mute", "play", "rest", "at"],
                 ),
             }
         }
@@ -1194,6 +1196,31 @@ impl Parser {
             _ => {}
         }
         self.song.tracks.push(track);
+    }
+
+    /// `comp threshold= ratio= attack= release= makeup= mode=feedforward|feedback`, or `comp off`.
+    fn comp_options(&mut self, line: &Line) -> Option<CompSettings> {
+        if line.tokens.get(1).is_some_and(|t| t.text == "off") {
+            self.extra_tokens(line, 2);
+            return None;
+        }
+        let mut c = CompSettings { threshold_db: -12.0, ratio: 3.0, attack: 0.01, release: 0.15, makeup_db: 0.0, feedback: false };
+        for (key, val, tok) in self.options(line, 1) {
+            match key {
+                "threshold" => set(&mut c.threshold_db, self.db(tok, val)),
+                "ratio" => set(&mut c.ratio, self.value(tok, val, 1.0, 20.0)),
+                "attack" => set(&mut c.attack, self.seconds(tok, val)),
+                "release" => set(&mut c.release, self.seconds(tok, val)),
+                "makeup" => set(&mut c.makeup_db, self.db(tok, val)),
+                "mode" => match val {
+                    "feedback" => c.feedback = true,
+                    "feedforward" => c.feedback = false,
+                    _ => self.err_hint(tok.span, format!("unknown compressor mode '{val}'"), "mode=feedforward (default) or mode=feedback"),
+                },
+                _ => self.unknown_option(tok, key, "comp", &["threshold", "ratio", "attack", "release", "makeup", "mode"]),
+            }
+        }
+        Some(c)
     }
 
     fn eq_options(&mut self, line: &Line) -> EqSettings {
@@ -1267,23 +1294,25 @@ impl Parser {
                         }
                     }
                 }
-                "comp" => {
+                "comp" => m.comp = self.comp_options(line),
+                "sidechain" => {
                     if off {
-                        m.comp = None;
+                        m.sidechain = None;
                         continue;
                     }
-                    let mut c = CompSettings { threshold_db: -12.0, ratio: 3.0, attack: 0.01, release: 0.15, makeup_db: 0.0 };
-                    for (key, val, tok) in self.options(line, 1) {
+                    let Some(t) = self.arg(line, 1, "name of the track or layer that is the key (usually drums)") else { continue };
+                    let mut sc = MasterSidechain { source: t.text.clone(), threshold_db: -24.0, ratio: 6.0, attack: 0.002, release: 0.15, darken: 0.0 };
+                    for (key, val, tok) in self.options(line, 2) {
                         match key {
-                            "threshold" => set(&mut c.threshold_db, self.db(tok, val)),
-                            "ratio" => set(&mut c.ratio, self.value(tok, val, 1.0, 20.0)),
-                            "attack" => set(&mut c.attack, self.seconds(tok, val)),
-                            "release" => set(&mut c.release, self.seconds(tok, val)),
-                            "makeup" => set(&mut c.makeup_db, self.db(tok, val)),
-                            _ => self.unknown_option(tok, key, "comp", &["threshold", "ratio", "attack", "release", "makeup"]),
+                            "threshold" => set(&mut sc.threshold_db, self.db(tok, val)),
+                            "ratio" => set(&mut sc.ratio, self.value(tok, val, 1.0, 20.0)),
+                            "attack" => set(&mut sc.attack, self.seconds(tok, val)),
+                            "release" => set(&mut sc.release, self.seconds(tok, val)),
+                            "darken" => set(&mut sc.darken, self.value(tok, val, 0.0, 6.0)),
+                            _ => self.unknown_option(tok, key, "sidechain", &["threshold", "ratio", "attack", "release", "darken"]),
                         }
                     }
-                    m.comp = Some(c);
+                    m.sidechain = Some(sc);
                 }
                 "saturation" => {
                     if let Some(t) = self.arg(line, 1, "amount 0..1") {
@@ -1301,7 +1330,7 @@ impl Parser {
                         }
                     }
                 }
-                other => self.unknown_keyword(kw, other, "the master block", &["gain", "eq", "width", "reverb", "delay", "comp", "saturation", "limiter"]),
+                other => self.unknown_keyword(kw, other, "the master block", &["gain", "sidechain", "eq", "width", "reverb", "delay", "comp", "saturation", "limiter"]),
             }
         }
         self.song.master = m;

@@ -1,6 +1,34 @@
 //! Bus compressor and tape-style saturation for the master.
 
-use crate::model::CompSettings;
+use crate::dsp::filter::Svf;
+use crate::model::{CompSettings, FilterMode, MasterSidechain};
+
+/// Compresses `left`/`right` with the key signal as the detector. With
+/// `darken`, a lowpass on the compressed signal closes along with the gain.
+pub fn keyed_compress(sc: &MasterSidechain, key_l: &[f32], key_r: &[f32], left: &mut [f32], right: &mut [f32], sr: f32) {
+    let attack = (-1.0 / (sc.attack.max(0.0002) * sr)).exp();
+    let release = (-1.0 / (sc.release.max(0.005) * sr)).exp();
+    let ratio = sc.ratio.max(1.0);
+    let mut env_db = 0.0f32;
+    let mut lp = [Svf::default(), Svf::default()];
+    for i in 0..left.len() {
+        let peak = key_l.get(i).copied().unwrap_or(0.0).abs().max(key_r.get(i).copied().unwrap_or(0.0).abs());
+        let over = 20.0 * peak.max(1e-9).log10() - sc.threshold_db;
+        let target = if over > 0.0 { -over * (1.0 - 1.0 / ratio) } else { 0.0 };
+        let coef = if target < env_db { attack } else { release };
+        env_db = target + (env_db - target) * coef;
+        let g = 10f32.powf(env_db / 20.0);
+        left[i] *= g;
+        right[i] *= g;
+        if sc.darken > 0.0 {
+            let cutoff = (18_000.0 * 2f32.powf(sc.darken * env_db / 12.0)).max(200.0);
+            for (f, s) in lp.iter_mut().zip([&mut left[i], &mut right[i]]) {
+                f.set(cutoff, 0.0, sr);
+                *s = f.process(*s, FilterMode::Lowpass);
+            }
+        }
+    }
+}
 
 /// Feed-forward stereo compressor with a peak detector, soft knee and
 /// smoothed gain; the gain is linked between channels.
@@ -11,8 +39,13 @@ pub fn compress(settings: &CompSettings, left: &mut [f32], right: &mut [f32], sr
     let ratio = settings.ratio.max(1.0);
     let makeup = 10f32.powf(settings.makeup_db / 20.0);
     let mut env_db = -120.0f32;
+    let mut last_gain = 1.0f32;
     for i in 0..left.len() {
-        let peak = left[i].abs().max(right[i].abs());
+        let mut peak = left[i].abs().max(right[i].abs());
+        if settings.feedback {
+            // Detect after the gain stage: the previous gain shapes what the detector sees.
+            peak *= last_gain;
+        }
         let level_db = 20.0 * peak.max(1e-9).log10();
         let over = level_db - settings.threshold_db;
         // Soft knee: quadratic transition around the threshold.
@@ -26,9 +59,10 @@ pub fn compress(settings: &CompSettings, left: &mut [f32], right: &mut [f32], sr
         let target = -reduction;
         let coef = if target < env_db { attack } else { release };
         env_db = target + (env_db - target) * coef;
-        let g = 10f32.powf(env_db / 20.0) * makeup;
-        left[i] *= g;
-        right[i] *= g;
+        let g = 10f32.powf(env_db / 20.0);
+        last_gain = g;
+        left[i] *= g * makeup;
+        right[i] *= g * makeup;
     }
 }
 

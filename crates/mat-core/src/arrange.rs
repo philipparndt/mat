@@ -6,7 +6,7 @@ use std::path::Path;
 
 use serde::Serialize;
 
-use crate::diag::{Diagnostic, did_you_mean};
+use crate::diag::{Diagnostic, Span, did_you_mean};
 use crate::model::*;
 
 #[derive(Debug, Clone, Serialize)]
@@ -69,6 +69,7 @@ pub struct TimelineTrack {
     pub reverb: f32,
     pub delay: f32,
     pub eq: Option<EqSettings>,
+    pub comp: Option<CompSettings>,
     pub chorus: Option<ChorusSettings>,
     pub duck: Option<Duck>,
     pub sweeps: Vec<Sweep>,
@@ -251,6 +252,7 @@ pub fn arrange(song: &Song) -> Result<Timeline, Vec<Diagnostic>> {
             reverb: track.reverb,
             delay: track.delay,
             eq: track.eq.clone(),
+            comp: track.comp.clone(),
             chorus: track.chorus.clone(),
             duck: None,
             sweeps: track
@@ -283,6 +285,11 @@ pub fn arrange(song: &Song) -> Result<Timeline, Vec<Diagnostic>> {
         tracks[index].duck = Some(Duck { depth: sc.depth, attack: sc.attack, release: sc.release, times });
     }
 
+    if let Some(sc) = &song.master.sidechain
+        && !tracks.iter().any(|t| t.name == sc.source || t.layer == sc.source)
+    {
+        diags.push(Diagnostic::error(Span::default(), format!("master sidechain: no track or layer named '{}'", sc.source)));
+    }
     if !diags.is_empty() {
         return Err(diags);
     }

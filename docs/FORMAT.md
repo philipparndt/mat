@@ -245,6 +245,7 @@ Humanize is deterministic per track, so a render always sounds the same.
 
 ```
   eq lowcut=150 low=-2 lowfreq=200 mid=+1 midfreq=1k high=+3 highfreq=6k highcut=16k
+  comp threshold=-12 ratio=4 attack=5ms release=120ms makeup=3 mode=feedback
   chorus mix=0.5 rate=0.7 depth=4ms
   sidechain drums depth=0.8 attack=5ms release=250ms on=kick
 ```
@@ -259,8 +260,10 @@ A sweep moves through its bars and then holds the end value.
 
 `sidechain <track>` ducks this track on every hit of another track: the kick
 if that track has one, or the drum named with `on=`. A muted track still triggers,
-so a silent "ghost kick" track works too. The order is EQ, chorus, ducking,
-then gain, pan and the sends.
+so a silent "ghost kick" track works too. The order is EQ, compressor, chorus, ducking,
+then gain, pan and the sends. `comp` on a track is the same compressor as on the
+master; `mode=feedback` detects after the gain stage (gentler, pumps musically),
+the default is feedforward.
 
 ### Audio tracks
 
@@ -280,6 +283,10 @@ pattern; `play all` does not.
 ```
 master
   gain 3
+  sidechain drums threshold=-24 ratio=6 attack=2ms release=150ms darken=2
+                                                        # keyed compression: the drums track (or layer) pushes
+                                                        # everything else down on every hit; darken closes a
+                                                        # lowpass by that many octaves per 12 dB of reduction
   eq high=+1.5 highfreq=9k                              # same options as a track eq
   width 1.15                                            # stereo width: 0 mono, 1 as mixed, up to 2
   reverb size=0.8 decay=0.7 damping=0.4 predelay=20ms   # or: reverb off
@@ -289,7 +296,7 @@ master
   limiter ceiling=-1 release=80ms                       # or: limiter off
 ```
 
-Order on the master: gain, eq, width, saturation, compressor, limiter.
+Order on the master: sidechain, gain, eq, width, saturation, compressor, limiter.
 
 ## Rendering for games
 
