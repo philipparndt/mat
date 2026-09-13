@@ -41,7 +41,7 @@ instrument acid preset acid
   envmod 0.3
   accent 0.9
 instrument dj scratch
-  source drums bars=7-8
+  source drums bars=6-7
   speed 2
   pitch keep
   grain 1/16
@@ -163,7 +163,7 @@ pattern roll_up grid=1/16
   snare 7777888899999999
   kick  X.......X.......
 
-# Beat drop into the synth: bars 7-8 of the drums played backwards at double
+# Beat drop into the synth: bars 6-7 of the drums played backwards at double
 # speed, same pitch, over the whole of bar 8 (the drums themselves rest there).
 # For two beats instead, use grid=1/2 with `back .x` and `groove_half`.
 pattern cut_one grid=1/1
