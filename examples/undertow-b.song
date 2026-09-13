@@ -7,7 +7,7 @@
 # Layers (stems): drums, rumble, bass, arp, pad, lead, acid, fx
 
 title "Undertow B"
-tempo 124
+tempo 128
 meter 4/4
 swing 0.54
 
@@ -375,4 +375,4 @@ track impact
 
 master preset techno
   gain 2
-  sidechain drums threshold=-22 ratio=8 attack=1ms release=140ms darken=1.5
+  sidechain drums threshold=-30 ratio=8 attack=1ms release=140ms darken=3
