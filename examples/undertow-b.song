@@ -41,7 +41,7 @@ instrument acid preset acid
   accent 0.9
 instrument dj scratch
   sample "samples:mat/choir-ahh.wav" at=0.05s length=0.7s
-  speed 1.2
+  speed 2
 instrument riser preset riser
 instrument impact preset impact
 
@@ -160,14 +160,9 @@ pattern roll_up grid=1/16
   snare 7777888899999999
   kick  X.......X.......
 
-# Scratches, sparse and dark: a cut at the end of a phrase, stutters in the builds.
-pattern cut_end grid=1/16
-  baby   ............xx..
-  chirp  ..............x.
-
-pattern cut_build grid=1/16
-  transform ....xx..........
-  scribble  ............xx..
+# One strong scratch on the last beat before the synth comes in.
+pattern cut_one grid=1/4
+  scribble ...x
 
 pattern break_hit grid=1/16
   kick  X...............
@@ -348,32 +343,13 @@ track acid
 track dj
   instrument dj
   layer dj
-  gain -12
-  pan -0.3
-  reverb 0.4
-  delay 0.3
-  eq lowcut=200 highcut=5k
-  sidechain drums depth=0.4
-  at 16
-  play cut_end
-  at 24
-  play cut_end
-  at 30
-  play cut_build x2
-  at 40
-  play cut_end
-  at 48
-  play cut_end
-  at 62
-  play cut_build x2
-  at 72
-  play cut_end
-  at 80
-  play cut_end
-  at 88
-  play cut_end
-  at 96
-  play cut_end
+  gain -3
+  pan 0.1
+  reverb 0.3
+  delay 0.2
+  eq lowcut=200 high=+3 highfreq=4k
+  at 8
+  play cut_one
 
 track riser
   instrument riser
