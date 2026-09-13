@@ -62,6 +62,9 @@ pub struct TimedSection {
 pub struct TimelineTrack {
     pub name: String,
     pub layer: String,
+    /// Rendered (e.g. as a scratch source) but not mixed; used by stem renders.
+    #[serde(default)]
+    pub silent: bool,
     pub instrument_name: String,
     pub instrument: InstrumentKind,
     pub gain_db: f32,
@@ -245,6 +248,7 @@ pub fn arrange(song: &Song) -> Result<Timeline, Vec<Diagnostic>> {
         tracks.push(TimelineTrack {
             name: track.name.clone(),
             layer: track.layer.clone().unwrap_or_else(|| track.name.clone()),
+            silent: false,
             instrument_name,
             instrument: kind,
             gain_db: track.gain_db,

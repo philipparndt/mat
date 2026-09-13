@@ -161,7 +161,7 @@ fn run(cli: Cli) -> anyhow::Result<ExitCode> {
                     solo.tracks.retain(|t| &t.layer == layer || sources.contains(&t.name));
                     for t in &mut solo.tracks {
                         if &t.layer != layer {
-                            t.gain_db = -200.0; // rendered as a scratch source, inaudible in the stem
+                            t.silent = true; // rendered as a scratch source, not mixed into the stem
                         }
                     }
                     let (mut audio, _) = mat_core::render(&solo, sample_rate, HashMap::new());

@@ -173,6 +173,9 @@ pub fn render(timeline: &Timeline, sample_rate: u32, mut stems: HashMap<usize, S
     let mut delay_bus = [vec![0.0f32; len], vec![0.0f32; len]];
 
     let mut mix_track = |track: &TimelineTrack, clips: Vec<StereoClip>| {
+        if track.silent {
+            return;
+        }
         let Some(start) = clips.iter().map(|c| c.offset).min() else { return };
         let chorus_tail = if track.chorus.is_some() { (0.05 * sr) as usize } else { 0 };
         let end = (clips.iter().map(|c| c.offset + c.left.len()).max().unwrap_or(start) + chorus_tail).min(len);

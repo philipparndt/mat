@@ -358,7 +358,7 @@ track acid
 track dj
   instrument dj
   layer dj
-  gain 0
+  gain +4
   at 8
   play cut_one
 

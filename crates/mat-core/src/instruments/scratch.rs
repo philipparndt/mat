@@ -74,16 +74,20 @@ pub fn render_region(def: &ScratchDef, left: Vec<f32>, right: Vec<f32>, rate: f6
             if def.keep_pitch {
                 // Time-stretch: grains from the moving position, each played at
                 // the record's own pitch, overlap-added with a Hann window.
-                let grain = ((def.grain * sample_rate) as usize).max(96);
-                // Short grains: Hann windows with 4x overlap (smooth, tonal).
-                // Long grains: slices with short crossfades, so drum hits stay sharp.
+                // Grains start every `hop` output samples at the moving position and
+                // play at the record's own pitch, forwards or backwards with the
+                // move. Short grains: Hann windows, 4x overlap (smooth, tonal).
+                // Long grains (beats): triangular windows, 2x overlap, so every
+                // bit of the record is heard once and hits stay sharp.
+                let hop = ((def.grain * sample_rate) as usize).max(48);
                 let slicing = def.grain > 0.06;
-                let xfade = (0.004 * sample_rate) as usize;
-                let hop = if slicing { grain - xfade } else { grain / 4 };
+                let grain = if slicing { hop * 2 } else { hop * 4 };
                 let native = rate / sample_rate as f64;
                 let mut g = 0usize;
                 while g < frames {
                     let x = g as f64 / frames as f64;
+                    let x_next = ((g + hop) as f64 / frames as f64).min(1.0);
+                    let backwards = pos(x_next) < pos(x);
                     let p0 = pos(x) + pad as f64;
                     for k in 0..grain {
                         let i = g + k;
@@ -91,20 +95,21 @@ pub fn render_region(def: &ScratchDef, left: Vec<f32>, right: Vec<f32>, rate: f6
                             break;
                         }
                         let w = if slicing {
-                            let rise = (k as f64 / xfade as f64).min(1.0);
-                            let fall = ((grain - 1 - k) as f64 / xfade as f64).min(1.0);
-                            rise.min(fall)
+                            let t = k as f64 / grain as f64;
+                            1.0 - (2.0 * t - 1.0).abs()
                         } else {
                             0.25 * (1.0 - (2.0 * PI * k as f64 / grain as f64).cos())
                         };
-                        let p = p0 + k as f64 * native;
-                        if p >= left.len() as f64 - 1.0 {
-                            break;
+                        // Center the grain on the position so overlaps line up.
+                        let offset = (k as f64 - grain as f64 * 0.5) * native;
+                        let p = if backwards { p0 - offset } else { p0 + offset };
+                        if p < 0.0 || p >= left.len() as f64 - 1.0 {
+                            continue;
                         }
                         out_l[i] += sinc::interpolate(&left, p, 1.0) * w as f32;
                         out_r[i] += sinc::interpolate(&right, p, 1.0) * w as f32;
                     }
-                    g += hop.max(1);
+                    g += hop;
                 }
                 for i in 0..frames {
                     let x = i as f64 / frames as f64;
