@@ -130,7 +130,11 @@ fn run(cli: Cli) -> anyhow::Result<ExitCode> {
                 Bits::F32 => BitDepth::Float32,
             };
             let loop_seconds = r#loop.then(|| (timeline.end / timeline.bar_seconds - 1e-6).ceil() * timeline.bar_seconds);
-            let mut audio = render(&timeline, sample_rate);
+            // One render, split into layers when stems are wanted: a stem is
+            // the song's own take of its tracks, not a solo render of them.
+            let rendering = render_song(&timeline, sample_rate, stems.is_some());
+            let layers_peak_db = rendering.layers_peak_db;
+            let mut audio = rendering.mix;
             if let Some(secs) = loop_seconds {
                 mat_core::render::fold_loop(&mut audio, secs);
                 println!("loop: {} bars, {}", (secs / timeline.bar_seconds).round(), format_time(secs));
@@ -140,45 +144,19 @@ fn run(cli: Cli) -> anyhow::Result<ExitCode> {
 
             if let Some(dir) = stems {
                 std::fs::create_dir_all(&dir)?;
-                let mut layers: Vec<String> = Vec::new();
-                for t in &timeline.tracks {
-                    if !layers.contains(&t.layer) {
-                        layers.push(t.layer.clone());
-                    }
-                }
                 let mut written = Vec::new();
-                for layer in &layers {
-                    let mut solo = timeline.clone();
-                    let sources: Vec<String> = solo
-                        .tracks
-                        .iter()
-                        .filter(|t| &t.layer == layer)
-                        .filter_map(|t| match &t.instrument {
-                            InstrumentKind::Scratch(d) => d.source_track.clone(),
-                            _ => None,
-                        })
-                        .collect();
-                    solo.tracks.retain(|t| &t.layer == layer || sources.contains(&t.name));
-                    for t in &mut solo.tracks {
-                        if &t.layer != layer {
-                            t.silent = true; // rendered as a scratch source, not mixed into the stem
-                        }
-                    }
-                    let (mut audio, _) = mat_core::render(&solo, sample_rate, HashMap::new());
+                for layer in rendering.layers {
+                    // Already the mix's length: the layers are cut where the mix
+                    // is, so they line up in the engine without padding.
+                    let mut audio = layer.audio;
                     if let Some(secs) = loop_seconds {
                         mat_core::render::fold_loop(&mut audio, secs);
-                    } else {
-                        // Same length for every stem, so they line up in the engine.
-                        let n = (timeline.end * sample_rate as f64) as usize;
-                        if audio.left.len() < n {
-                            audio.left.resize(n, 0.0);
-                            audio.right.resize(n, 0.0);
-                        }
                     }
-                    let file = format!("{}.wav", layer.replace(['/', ' '], "_"));
+                    let file = format!("{}.wav", layer.layer.replace(['/', ' '], "_"));
                     write_wav(&dir.join(&file), &audio, depth)?;
                     println!("  {file}: peak {:.1} dBFS", audio.peak_db());
-                    written.push(serde_json::json!({ "layer": layer, "file": file, "tracks": timeline.tracks.iter().filter(|t| &t.layer == layer).map(|t| t.name.clone()).collect::<Vec<_>>() }));
+                    let tracks: Vec<String> = timeline.tracks.iter().filter(|t| t.layer == layer.layer).map(|t| t.name.clone()).collect();
+                    written.push(serde_json::json!({ "layer": layer.layer, "file": file, "tracks": tracks }));
                 }
                 let manifest = serde_json::json!({
                     "title": timeline.title,
@@ -191,6 +169,18 @@ fn run(cli: Cli) -> anyhow::Result<ExitCode> {
                     "loop": loop_seconds.is_some(),
                     "sections": timeline.sections.iter().map(|s| serde_json::json!({ "name": s.name, "bars": [s.from_bar, s.to_bar], "start": s.start, "end": s.end })).collect::<Vec<_>>(),
                     "layers": written,
+                    // What the stems add up to. Every stage a stem has been
+                    // through is linear, so their sum is the mix as it was
+                    // before the master's dynamics; a player that wants the
+                    // mastered loudness puts its own limiter on the sum, and
+                    // `master` tells it what the song's would have done.
+                    "mixing": {
+                        "stems_sum_to": "the mix before saturation, compressor, clip and limiter",
+                        "applied": mat_core::render::LAYER_STAGES_APPLIED,
+                        "skipped": mat_core::render::LAYER_STAGES_SKIPPED,
+                        "sum_peak_db": layers_peak_db,
+                    },
+                    "master": timeline.master,
                 });
                 std::fs::write(dir.join("manifest.json"), serde_json::to_string_pretty(&manifest)?)?;
                 println!("wrote {}", dir.join("manifest.json").display());
@@ -310,6 +300,12 @@ fn print_summary(t: &Timeline) {
 }
 
 fn render(timeline: &Timeline, sample_rate: u32) -> mat_core::Audio {
+    render_song(timeline, sample_rate, false).mix
+}
+
+/// Renders the song, with its layers kept apart when `split`, and prints
+/// the render's summary line.
+fn render_song(timeline: &Timeline, sample_rate: u32, split: bool) -> mat_core::render::Rendering {
     let started = Instant::now();
     let stems = match render_audio_unit_stems(timeline, sample_rate) {
         Ok(stems) => stems,
@@ -318,14 +314,15 @@ fn render(timeline: &Timeline, sample_rate: u32) -> mat_core::Audio {
             HashMap::new()
         }
     };
-    let (audio, report) = mat_core::render(timeline, sample_rate, stems);
-    for warning in report.warnings {
+    let rendering = mat_core::render::render_layers(timeline, sample_rate, stems, split);
+    for warning in &rendering.report.warnings {
         eprintln!("warning: {warning}");
     }
-    for name in report.skipped_tracks {
+    for name in &rendering.report.skipped_tracks {
         eprintln!("warning: track '{name}' uses an Audio Unit instrument and was skipped");
     }
     let secs = started.elapsed().as_secs_f64();
+    let audio = &rendering.mix;
     println!(
         "rendered {} in {:.2}s ({:.0}x realtime), peak {:.1} dBFS, rms {:.1} dBFS",
         format_time(audio.duration()),
@@ -334,7 +331,7 @@ fn render(timeline: &Timeline, sample_rate: u32) -> mat_core::Audio {
         audio.peak_db(),
         audio.rms_db()
     );
-    audio
+    rendering
 }
 
 /// Renders Audio Unit tracks with the macOS `mat-au` host into dry stems.

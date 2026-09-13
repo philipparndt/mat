@@ -335,3 +335,12 @@ mat render loop.song --loop --stems out/   # seamless loop: whole bars, tails fo
 
 `manifest.json` lists tempo, bar length, sections (with start and end in seconds)
 and the layer files, so a game engine can switch layers on bar boundaries.
+
+The layers come out of one render of the whole song: every track is rendered
+once, as it is in the mix, and each layer is its tracks' share — with their
+sends into the delay and reverb, the master sidechain keyed from the whole
+song, and the master's gain, EQ and width. They are all the mix's length and
+sum to it sample for sample, except that the master's saturation, compressor,
+clipper and limiter are not applied to a layer (they are not linear, so they
+cannot be split). `manifest.json` says so under `mixing`, and carries the
+`master` settings so a player can apply its own limiter to the sum.

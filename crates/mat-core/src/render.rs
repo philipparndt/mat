@@ -14,7 +14,7 @@ use crate::dsp::delay::PingPongDelay;
 use crate::dsp::reverb::PlateReverb;
 use crate::dsp::{StereoClip, db_to_gain, limiter, pan_gains};
 use crate::instruments::{drums, synth, tb303};
-use crate::model::{DrumKind, InstrumentKind, Pitch};
+use crate::model::{DrumKind, InstrumentKind, Master, Pitch};
 use crate::sampler::Sampler;
 
 pub struct Audio {
@@ -45,9 +45,58 @@ pub struct RenderReport {
     pub warnings: Vec<String>,
 }
 
+/// One layer's share of the mix: what its tracks contribute, with their sends
+/// and the master's linear stages applied, before the master's dynamics.
+pub struct LayerAudio {
+    pub layer: String,
+    pub audio: Audio,
+}
+
+/// A render: the mix and, when asked for, the layers it is the sum of.
+pub struct Rendering {
+    pub mix: Audio,
+    /// Empty unless `render_layers` was asked to split. The layers sum,
+    /// sample for sample, to the mix as it was before saturation, the bus
+    /// compressor, the clipper and the limiter — every stage up to there is
+    /// linear, so the sum of the parts is the whole.
+    pub layers: Vec<LayerAudio>,
+    /// The peak of the layers' sum in dBFS — the mix before its dynamics —
+    /// so a player that sums the layers itself knows how far above the
+    /// limiter's ceiling that lands, and how much to turn them down.
+    pub layers_peak_db: f32,
+    pub report: RenderReport,
+}
+
+/// The stages of the master chain a layer has been through, and the ones it
+/// has not, by name — written into the stems' manifest so a player knows
+/// what the sum of the stems is.
+pub const LAYER_STAGES_APPLIED: &[&str] = &["delay", "reverb", "sidechain", "gain", "eq", "width"];
+pub const LAYER_STAGES_SKIPPED: &[&str] = &["saturation", "comp", "clip", "limiter"];
+
 /// Renders the timeline. `stems` holds pre-rendered dry audio for tracks the
 /// built-in engine cannot play (Audio Unit instruments), keyed by track index.
-pub fn render(timeline: &Timeline, sample_rate: u32, mut stems: HashMap<usize, StereoClip>) -> (Audio, RenderReport) {
+pub fn render(timeline: &Timeline, sample_rate: u32, stems: HashMap<usize, StereoClip>) -> (Audio, RenderReport) {
+    let rendering = render_layers(timeline, sample_rate, stems, false);
+    (rendering.mix, rendering.report)
+}
+
+/// Renders the timeline once and, with `split`, keeps one signal per layer
+/// beside the mix.
+///
+/// The layers used to be made by rendering the song once per layer with the
+/// other tracks taken out. That gave layers that were not the song: a note's
+/// randomness — drift, unison spread, an LFO's phase — is seeded from the
+/// track's index in the timeline, so a track alone at index 0 played a
+/// different take than the same track at index 3 in the mix; and each solo
+/// render went through the master's compressor and limiter on its own peaks,
+/// so a layer's level was not its level in the song and the layers did not
+/// add up to it. Now every track is rendered exactly once, mixed into its
+/// layer's buses, and each layer goes through the send effects and the
+/// master's linear stages with the sidechain keyed from the whole song's key
+/// tracks. The mix is the sum of the layers, and only then saturation, the
+/// bus compressor, the clipper and the limiter — which is also one render
+/// instead of one per layer plus one.
+pub fn render_layers(timeline: &Timeline, sample_rate: u32, mut stems: HashMap<usize, StereoClip>, split: bool) -> Rendering {
     let sr = sample_rate as f32;
     let mut skipped = Vec::new();
 
@@ -165,91 +214,227 @@ pub fn render(timeline: &Timeline, sample_rate: u32, mut stems: HashMap<usize, S
         + if master.delay.enabled { delay_tail(timeline.delay_seconds, master.delay.feedback) } else { 0.0 };
     let len = content_end + (tail_seconds * sr as f64) as usize;
 
-    let mut mix = [vec![0.0f32; len], vec![0.0f32; len]];
-    // With a master sidechain, the key tracks are collected separately.
-    let key_source = master.sidechain.as_ref().map(|s| s.source.clone());
-    let mut key_mix = [vec![0.0f32; if key_source.is_some() { len } else { 0 }], vec![0.0f32; if key_source.is_some() { len } else { 0 }]];
-    let mut reverb_bus = [vec![0.0f32; len], vec![0.0f32; len]];
-    let mut delay_bus = [vec![0.0f32; len], vec![0.0f32; len]];
+    let clips_of: HashMap<usize, Vec<StereoClip>> = rendered.into_iter().collect();
+    let files_of: HashMap<usize, AudioFile> = audio_tracks.into_iter().collect();
+    let sources = TrackSources { timeline, clips_of: &clips_of, files_of: &files_of, len, sr };
 
-    let mut mix_track = |track: &TimelineTrack, clips: Vec<StereoClip>| {
-        if track.silent {
-            return;
-        }
-        let Some(start) = clips.iter().map(|c| c.offset).min() else { return };
-        let chorus_tail = if track.chorus.is_some() { (0.05 * sr) as usize } else { 0 };
-        let end = (clips.iter().map(|c| c.offset + c.left.len()).max().unwrap_or(start) + chorus_tail).min(len);
-        let mut left = vec![0.0f32; end.saturating_sub(start)];
-        let mut right = vec![0.0f32; left.len()];
-        for clip in clips {
-            for (i, (l, r)) in clip.left.iter().zip(&clip.right).enumerate() {
-                let idx = clip.offset + i - start;
-                if idx < left.len() {
-                    left[idx] += l;
-                    right[idx] += r;
-                }
+    // Which tracks go together: one group per layer in the order the layers
+    // first appear, or everything as one group when nobody wants the parts.
+    let groups: Vec<(String, Vec<usize>)> = if split {
+        let mut groups: Vec<(String, Vec<usize>)> = Vec::new();
+        for (ti, track) in timeline.tracks.iter().enumerate() {
+            match groups.iter_mut().find(|(layer, _)| layer == &track.layer) {
+                Some((_, members)) => members.push(ti),
+                None => groups.push((track.layer.clone(), vec![ti])),
             }
         }
-        if let Some(eq) = &track.eq {
-            apply_eq(eq, &mut left, &mut right, sr);
-        }
-        if let Some(comp) = &track.comp {
-            crate::dsp::dynamics::compress(comp, &mut left, &mut right, sr);
-        }
-        if let Some(chorus) = &track.chorus {
-            apply_chorus(chorus, &mut left, &mut right, sr);
-        }
-        if let Some(ph) = &track.phaser {
-            crate::dsp::phaser::apply_phaser(ph, &mut left, &mut right, sr);
-        }
-        if let Some(duck) = &track.duck {
-            apply_duck(duck, start, &mut left, &mut right, sr);
-        }
-        let gain_sweeps: Vec<&crate::arrange::Sweep> = track.sweeps.iter().filter(|s| s.param == "gain").collect();
-        if !gain_sweeps.is_empty() {
-            for i in 0..left.len() {
-                let t = (start + i) as f64 / sr as f64;
-                let mut db = None;
-                for s in &gain_sweeps {
-                    if t >= s.start {
-                        let x = if s.end > s.start { ((t - s.start) / (s.end - s.start)).clamp(0.0, 1.0) as f32 } else { 1.0 };
-                        db = Some(s.from + (s.to - s.from) * x);
-                    }
-                }
-                if let Some(db) = db {
-                    let g = db_to_gain(db);
-                    left[i] *= g;
-                    right[i] *= g;
-                }
-            }
-        }
-        let gain = db_to_gain(track.gain_db);
-        let (pl, pr) = pan_gains(track.pan);
-        let (gl, gr) = (gain * pl, gain * pr);
-        let is_key = key_source.as_ref().is_some_and(|k| &track.name == k || &track.layer == k);
-        let target = if is_key { &mut key_mix } else { &mut mix };
-        for (i, (l, r)) in left.iter().zip(&right).enumerate() {
-            let idx = start + i;
-            let (l, r) = (l * gl, r * gr);
-            target[0][idx] += l;
-            target[1][idx] += r;
-            reverb_bus[0][idx] += l * track.reverb;
-            reverb_bus[1][idx] += r * track.reverb;
-            delay_bus[0][idx] += l * track.delay;
-            delay_bus[1][idx] += r * track.delay;
-        }
+        groups
+    } else {
+        vec![(String::from("mix"), (0..timeline.tracks.len()).collect())]
     };
-    for (ti, clips) in rendered {
-        mix_track(&timeline.tracks[ti], clips);
-    }
-    for (ti, file) in &audio_tracks {
-        let track = &timeline.tracks[*ti];
-        match render_audio(file, &track.clips, sr) {
-            Ok(clips) => mix_track(track, clips),
-            Err(e) => warnings.push(format!("track '{}': {e}", track.name)),
+
+    // The master sidechain's key: every key track of the song, whichever
+    // layer it is in, so a layer on its own is ducked exactly as it is in the
+    // mix. Key tracks are collected separately from the rest and added back
+    // after the ducking, which they must not duck themselves.
+    let key_source = master.sidechain.as_ref().map(|s| s.source.clone());
+    let is_key = |track: &TimelineTrack| key_source.as_ref().is_some_and(|k| &track.name == k || &track.layer == k);
+    let key_len = if key_source.is_some() { len } else { 0 };
+    let mut key = [vec![0.0f32; key_len], vec![0.0f32; key_len]];
+    if key_source.is_some() {
+        for ti in 0..timeline.tracks.len() {
+            if !is_key(&timeline.tracks[ti]) {
+                continue;
+            }
+            if let Some(audio) = sources.audio_of(ti, &mut warnings) {
+                add_into(&mut key, &audio, 1.0);
+            }
         }
     }
 
+    let mut mix = [vec![0.0f32; len], vec![0.0f32; len]];
+    let mut layers: Vec<(String, Vec<f32>, Vec<f32>)> = Vec::new();
+    for (name, members) in groups {
+        let mut dry = [vec![0.0f32; len], vec![0.0f32; len]];
+        let mut own_key = [vec![0.0f32; key_len], vec![0.0f32; key_len]];
+        let mut reverb_bus = [vec![0.0f32; len], vec![0.0f32; len]];
+        let mut delay_bus = [vec![0.0f32; len], vec![0.0f32; len]];
+        for &ti in &members {
+            let track = &timeline.tracks[ti];
+            let Some(audio) = sources.audio_of(ti, &mut warnings) else { continue };
+            add_into(if is_key(track) { &mut own_key } else { &mut dry }, &audio, 1.0);
+            add_into(&mut reverb_bus, &audio, track.reverb);
+            add_into(&mut delay_bus, &audio, track.delay);
+        }
+        let (left, right) = through_linear_master(timeline, master, sr, dry, &key, &own_key, reverb_bus, delay_bus);
+        for i in 0..len {
+            mix[0][i] += left[i];
+            mix[1][i] += right[i];
+        }
+        if split {
+            layers.push((name, left, right));
+        }
+    }
+
+    let [mut left, mut right] = mix;
+    let layers_peak_db = {
+        let peak = left.iter().chain(&right).fold(0.0f32, |m, s| m.max(s.abs()));
+        20.0 * peak.max(1e-9).log10()
+    };
+    if master.saturation > 0.0 {
+        crate::dsp::dynamics::saturate(master.saturation, &mut left, &mut right);
+    }
+    if let Some(comp) = &master.comp {
+        crate::dsp::dynamics::compress(comp, &mut left, &mut right, sr);
+    }
+    if master.clip_db < 0.0 {
+        crate::dsp::dynamics::clip(master.clip_db, &mut left, &mut right);
+    }
+    if master.limiter.enabled {
+        limiter::limit(&mut left, &mut right, master.limiter.ceiling_db, master.limiter.release_ms, sr);
+    }
+    let end = trim_tail(&mut left, &mut right, sr);
+
+    // The layers end where the mix ends, with the same fade, so they stay the
+    // mix's length and still sum to it.
+    let layers = layers
+        .into_iter()
+        .map(|(layer, mut l, mut r)| {
+            l.truncate(end);
+            r.truncate(end);
+            fade_out(&mut l, &mut r, sr);
+            LayerAudio { layer, audio: Audio { sample_rate, left: l, right: r } }
+        })
+        .collect();
+
+    Rendering { mix: Audio { sample_rate, left, right }, layers, layers_peak_db, report: RenderReport { skipped_tracks: skipped, warnings } }
+}
+
+/// A track as it sounds in the mix: its clips summed, its effects, its gain
+/// and its pan, from `start` on.
+struct TrackAudio {
+    start: usize,
+    left: Vec<f32>,
+    right: Vec<f32>,
+}
+
+/// Where a track's audio comes from: rendered clips for most, a file read on
+/// demand for an audio track.
+struct TrackSources<'a> {
+    timeline: &'a Timeline,
+    clips_of: &'a HashMap<usize, Vec<StereoClip>>,
+    files_of: &'a HashMap<usize, AudioFile>,
+    len: usize,
+    sr: f32,
+}
+
+impl TrackSources<'_> {
+    fn audio_of(&self, ti: usize, warnings: &mut Vec<String>) -> Option<TrackAudio> {
+        let track = &self.timeline.tracks[ti];
+        if track.silent {
+            return None;
+        }
+        if let Some(clips) = self.clips_of.get(&ti) {
+            return process_track(track, clips, self.len, self.sr);
+        }
+        let file = self.files_of.get(&ti)?;
+        match render_audio(file, &track.clips, self.sr) {
+            Ok(clips) => process_track(track, &clips, self.len, self.sr),
+            Err(e) => {
+                warnings.push(format!("track '{}': {e}", track.name));
+                None
+            }
+        }
+    }
+}
+
+fn add_into(bus: &mut [Vec<f32>; 2], audio: &TrackAudio, amount: f32) {
+    if amount == 0.0 {
+        return;
+    }
+    for (i, (l, r)) in audio.left.iter().zip(&audio.right).enumerate() {
+        let idx = audio.start + i;
+        bus[0][idx] += l * amount;
+        bus[1][idx] += r * amount;
+    }
+}
+
+/// The track's insert chain: EQ, compressor, chorus, phaser, ducking, gain
+/// sweeps, then gain and pan.
+fn process_track(track: &TimelineTrack, clips: &[StereoClip], len: usize, sr: f32) -> Option<TrackAudio> {
+    let start = clips.iter().map(|c| c.offset).min()?;
+    let chorus_tail = if track.chorus.is_some() { (0.05 * sr) as usize } else { 0 };
+    let end = (clips.iter().map(|c| c.offset + c.left.len()).max().unwrap_or(start) + chorus_tail).min(len);
+    let mut left = vec![0.0f32; end.saturating_sub(start)];
+    let mut right = vec![0.0f32; left.len()];
+    for clip in clips {
+        for (i, (l, r)) in clip.left.iter().zip(&clip.right).enumerate() {
+            let idx = clip.offset + i - start;
+            if idx < left.len() {
+                left[idx] += l;
+                right[idx] += r;
+            }
+        }
+    }
+    if let Some(eq) = &track.eq {
+        apply_eq(eq, &mut left, &mut right, sr);
+    }
+    if let Some(comp) = &track.comp {
+        crate::dsp::dynamics::compress(comp, &mut left, &mut right, sr);
+    }
+    if let Some(chorus) = &track.chorus {
+        apply_chorus(chorus, &mut left, &mut right, sr);
+    }
+    if let Some(ph) = &track.phaser {
+        crate::dsp::phaser::apply_phaser(ph, &mut left, &mut right, sr);
+    }
+    if let Some(duck) = &track.duck {
+        apply_duck(duck, start, &mut left, &mut right, sr);
+    }
+    let gain_sweeps: Vec<&crate::arrange::Sweep> = track.sweeps.iter().filter(|s| s.param == "gain").collect();
+    if !gain_sweeps.is_empty() {
+        for i in 0..left.len() {
+            let t = (start + i) as f64 / sr as f64;
+            let mut db = None;
+            for s in &gain_sweeps {
+                if t >= s.start {
+                    let x = if s.end > s.start { ((t - s.start) / (s.end - s.start)).clamp(0.0, 1.0) as f32 } else { 1.0 };
+                    db = Some(s.from + (s.to - s.from) * x);
+                }
+            }
+            if let Some(db) = db {
+                let g = db_to_gain(db);
+                left[i] *= g;
+                right[i] *= g;
+            }
+        }
+    }
+    let gain = db_to_gain(track.gain_db);
+    let (pl, pr) = pan_gains(track.pan);
+    let (gl, gr) = (gain * pl, gain * pr);
+    for (l, r) in left.iter_mut().zip(right.iter_mut()) {
+        *l *= gl;
+        *r *= gr;
+    }
+    Some(TrackAudio { start, left, right })
+}
+
+/// The send effects and the master's linear stages over one group of tracks:
+/// the delay and the reverb from the group's sends, the sidechain keyed from
+/// `key` (the whole song's key tracks) with the group's own key tracks added
+/// back afterwards, then master gain, EQ and width. Everything here is linear
+/// in the group's signal, which is what lets the groups be summed afterwards.
+fn through_linear_master(
+    timeline: &Timeline,
+    master: &Master,
+    sr: f32,
+    mut mix: [Vec<f32>; 2],
+    key: &[Vec<f32>; 2],
+    own_key: &[Vec<f32>; 2],
+    mut reverb_bus: [Vec<f32>; 2],
+    delay_bus: [Vec<f32>; 2],
+) -> (Vec<f32>, Vec<f32>) {
+    let len = mix[0].len();
     let mut wet = [vec![0.0f32; len], vec![0.0f32; len]];
     if master.delay.enabled {
         let mut delay = PingPongDelay::new(timeline.delay_seconds, master.delay.feedback, master.delay.tone_hz, sr);
@@ -277,10 +462,10 @@ pub fn render(timeline: &Timeline, sample_rate: u32, mut stems: HashMap<usize, S
 
     let [mut left, mut right] = mix;
     if let Some(sc) = &master.sidechain {
-        crate::dsp::dynamics::keyed_compress(sc, &key_mix[0], &key_mix[1], &mut left, &mut right, sr);
+        crate::dsp::dynamics::keyed_compress(sc, &key[0], &key[1], &mut left, &mut right, sr);
         for ch in 0..2 {
             let dst = if ch == 0 { &mut left } else { &mut right };
-            for (d, k) in dst.iter_mut().zip(&key_mix[ch]) {
+            for (d, k) in dst.iter_mut().zip(&own_key[ch]) {
                 *d += k;
             }
         }
@@ -300,21 +485,7 @@ pub fn render(timeline: &Timeline, sample_rate: u32, mut stems: HashMap<usize, S
             right[i] = mid - side;
         }
     }
-    if master.saturation > 0.0 {
-        crate::dsp::dynamics::saturate(master.saturation, &mut left, &mut right);
-    }
-    if let Some(comp) = &master.comp {
-        crate::dsp::dynamics::compress(comp, &mut left, &mut right, sr);
-    }
-    if master.clip_db < 0.0 {
-        crate::dsp::dynamics::clip(master.clip_db, &mut left, &mut right);
-    }
-    if master.limiter.enabled {
-        limiter::limit(&mut left, &mut right, master.limiter.ceiling_db, master.limiter.release_ms, sr);
-    }
-    trim_tail(&mut left, &mut right, sr);
-
-    (Audio { sample_rate, left, right }, RenderReport { skipped_tracks: skipped, warnings })
+    (left, right)
 }
 
 fn render_track(track: &TimelineTrack, track_index: usize, sr: f32) -> Option<Result<Vec<StereoClip>, String>> {
@@ -497,17 +668,94 @@ pub fn fold_loop(audio: &mut Audio, seconds: f64) {
     }
 }
 
-/// Removes trailing near-silence and applies a short fade-out.
-fn trim_tail(left: &mut Vec<f32>, right: &mut Vec<f32>, sr: f32) {
+/// Removes trailing near-silence and applies a short fade-out. Returns the
+/// length kept, so the layers of a split render can be cut to the same.
+fn trim_tail(left: &mut Vec<f32>, right: &mut Vec<f32>, sr: f32) -> usize {
     let threshold = 10f32.powf(-70.0 / 20.0);
     let last = (0..left.len()).rev().find(|&i| left[i].abs() > threshold || right[i].abs() > threshold);
     let end = last.map_or(0, |i| (i + (0.1 * sr) as usize).min(left.len()));
     left.truncate(end);
     right.truncate(end);
+    fade_out(left, right, sr);
+    end
+}
+
+/// A 50 ms fade at the very end.
+fn fade_out(left: &mut [f32], right: &mut [f32], sr: f32) {
+    let end = left.len();
     let fade = ((0.05 * sr) as usize).min(end);
     for k in 0..fade {
         let g = k as f32 / fade as f32;
         left[end - 1 - k] *= g;
         right[end - 1 - k] *= g;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Two tracks in two layers, with the things that used to make a solo
+    /// render a different take: a random drift per note, an LFO with a random
+    /// phase, and sends into the delay and the reverb.
+    const SONG: &str = "tempo 120
+instrument a synth
+  osc saw voices=3 spread=12
+  drift 8
+  lfo pitch rate=5 depth=10
+instrument b synth
+  osc square
+pattern p
+  C4:q D4 E4 F4 |
+track one
+  instrument a
+  reverb 0.3
+  delay 0.2
+  play p
+track two
+  instrument b
+  layer other
+  pan 0.4
+  play p transpose=5
+master
+  gain 2
+  limiter off
+  comp off
+";
+
+    fn timeline() -> Timeline {
+        crate::compile(SONG).expect("the test song compiles").0
+    }
+
+    /// With a linear master, the layers sum to the mix sample for sample —
+    /// which is only true when each track was rendered once, as itself.
+    #[test]
+    fn the_layers_sum_to_the_mix_when_the_master_is_linear() {
+        let rendering = render_layers(&timeline(), 48_000, HashMap::new(), true);
+        assert_eq!(rendering.layers.iter().map(|l| l.layer.as_str()).collect::<Vec<_>>(), ["one", "other"]);
+        let mix = &rendering.mix;
+        assert!(mix.left.len() > 48_000, "the song renders something");
+        let mut worst = 0.0f32;
+        for (i, (l, r)) in mix.left.iter().zip(&mix.right).enumerate() {
+            let (mut sl, mut sr) = (0.0f32, 0.0f32);
+            for layer in &rendering.layers {
+                assert_eq!(layer.audio.left.len(), mix.left.len(), "a layer is the mix's length");
+                sl += layer.audio.left[i];
+                sr += layer.audio.right[i];
+            }
+            worst = worst.max((sl - l).abs()).max((sr - r).abs());
+        }
+        assert!(worst < 1e-4, "the layers differ from the mix by up to {worst}");
+    }
+
+    /// Asking for the layers must not change the mix.
+    #[test]
+    fn the_mix_is_the_same_whether_or_not_it_is_split() {
+        let timeline = timeline();
+        let (plain, _) = render(&timeline, 48_000, HashMap::new());
+        let split = render_layers(&timeline, 48_000, HashMap::new(), true).mix;
+        assert_eq!(plain.left.len(), split.left.len());
+        let worst = plain.left.iter().zip(&split.left).map(|(a, b)| (a - b).abs()).fold(0.0f32, f32::max);
+        assert!(worst < 1e-5, "the mixes differ by up to {worst}");
     }
 }

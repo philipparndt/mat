@@ -70,6 +70,10 @@ swift build -c release --package-path swift
 
 Write the song in layers (`layer` on tracks) and sections (`section name bars=a-b`),
 then `mat render song.song --loop --stems out/` gives one seamless loop per layer
-plus a manifest with tempo, bar length and sections for the game engine.
+plus a manifest with tempo, bar length and sections for the game engine. The
+layers are cut from one render of the song, so they are the same take as the
+mix and add up to it — up to the master's saturation, compressor, clipper and
+limiter, which the manifest's `mixing` and `master` entries describe so the
+engine can put a limiter of its own on the sum.
 
 `private/` is gitignored and meant for songs that must not be committed.
