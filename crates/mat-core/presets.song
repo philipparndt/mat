@@ -1,0 +1,217 @@
+# Built-in presets. Use them as starting points:
+#   instrument pad preset dream-pad
+#     gain settings and extra lines override the preset
+#   master preset house
+# Sample kits refer to assets/samples/sonic-pi (CC0) relative to the repository;
+# set MAT_ASSETS or use the samples: prefix to point elsewhere.
+
+preset dream-pad synth "Soft, wide, slowly moving pad (dream house, trance breakdowns)"
+  osc supersaw detune=0.4 mix=0.65 level=0.7
+  osc triangle octave=1 level=0.2
+  filter lowpass cutoff=1000 res=0.1 keytrack=0.3
+  lfo filter rate=0.08 depth=0.5 fade=2
+  lfo width rate=0.05 depth=0.3
+  drift 5
+  amp attack=1.2 decay=1 sustain=0.9 release=2
+
+preset dark-pad synth "Dark, low, evolving pad (melodic techno)"
+  osc supersaw detune=0.5 mix=0.75 level=0.7
+  osc saw octave=-1 voices=2 spread=6 level=0.45
+  filter lowpass cutoff=700 res=0.2 keytrack=0.2
+  lfo filter rate=0.05 depth=0.7 fade=3
+  lfo width rate=0.04 depth=0.4
+  drift 6
+  amp attack=1.5 decay=1 sustain=0.9 release=2.5
+
+preset choir-pad synth "Breathy, vowel-like pad"
+  osc supersaw detune=0.35 mix=0.6 level=0.6
+  osc triangle level=0.3
+  noise 0.04
+  filter bandpass cutoff=900 res=0.35 keytrack=0.6
+  lfo filter rate=0.12 depth=0.5 fade=1.5
+  lfo width rate=0.06 depth=0.3
+  drift 6
+  amp attack=0.9 decay=1 sustain=0.9 release=1.8
+
+preset warm-strings synth "Synthetic string ensemble, slow attack"
+  osc saw voices=5 spread=12 level=0.7
+  osc saw octave=-1 voices=2 spread=8 level=0.35
+  filter lowpass cutoff=2200 res=0.05 keytrack=0.4
+  lfo pitch rate=5.5 depth=5 fade=1
+  drift 4
+  amp attack=0.5 decay=0.5 sustain=0.9 release=1.2
+
+preset supersaw-lead synth "Big trance lead: supersaw with an octave layer"
+  osc supersaw detune=0.55 mix=0.75
+  osc supersaw octave=1 detune=0.4 mix=0.6 level=0.3
+  osc saw octave=-1 voices=3 spread=10 level=0.3
+  filter lowpass cutoff=6000 res=0.1 env=1 keytrack=0.3
+  amp attack=8ms decay=0.4 sustain=0.8 release=0.3
+  fenv attack=1ms decay=0.3 sustain=0.4 release=0.3
+  vibrato rate=5.5 depth=8 delay=0.35
+  drift 6
+
+preset dream-lead synth "Soft saw lead for doubling a piano melody"
+  osc saw voices=3 spread=9 level=0.7
+  osc sine level=0.5
+  filter lowpass cutoff=2200 res=0.1 keytrack=0.4
+  amp attack=30ms decay=0.4 sustain=0.7 release=0.4
+  vibrato rate=5 depth=8 delay=0.3
+  drift 5
+
+preset pluck synth "Bright plucked arp sound"
+  osc supersaw detune=0.3 mix=0.5
+  osc square octave=1 level=0.15
+  filter lowpass cutoff=900 res=0.3 env=4 keytrack=0.5
+  amp attack=1ms decay=0.22 sustain=0 release=0.12
+  fenv attack=1ms decay=0.11 sustain=0 release=0.1
+  drift 4
+
+preset bell-pluck synth "Melancholic bell-like pluck, good with long delay"
+  osc square voices=2 spread=7 level=0.6
+  osc triangle octave=1 level=0.35
+  osc sine level=0.4
+  filter lowpass cutoff=1800 res=0.2 env=2 keytrack=0.5
+  amp attack=2ms decay=0.6 sustain=0.1 release=0.5
+  fenv attack=1ms decay=0.25 sustain=0 release=0.2
+  drift 5
+
+preset stab synth "Offbeat chord stab"
+  osc supersaw detune=0.45 mix=0.6
+  filter lowpass cutoff=1500 res=0.1 env=1.5
+  amp attack=2ms decay=0.15 sustain=0.4 release=60ms
+  fenv attack=1ms decay=0.1 sustain=0.2 release=50ms
+
+preset organ-bass synth "90s house organ bass (M1 style): hollow, short, punchy"
+  osc square level=0.6
+  osc sine octave=-1 level=0.8
+  osc sine octave=1 level=0.2
+  filter lowpass cutoff=900 res=0.05 env=0.5 keytrack=0.5
+  amp attack=1ms decay=0.18 sustain=0.5 release=40ms
+  fenv attack=1ms decay=0.1 sustain=0 release=40ms
+
+preset organ-stab synth "90s house organ / piano stab"
+  osc square voices=2 spread=6 level=0.6
+  osc sine level=0.5
+  osc sine octave=1 level=0.25
+  filter lowpass cutoff=2500 res=0.05 keytrack=0.5
+  amp attack=1ms decay=0.25 sustain=0.3 release=80ms
+
+preset rolling-bass synth "Trance / progressive rolling bass for offbeat 16ths"
+  osc saw level=0.7
+  osc square level=0.35
+  osc sine octave=-1 level=0.7
+  filter lowpass cutoff=240 res=0.25 env=2.5 drive=0.45
+  amp attack=1ms decay=0.12 sustain=0.55 release=40ms
+  fenv attack=1ms decay=70ms sustain=0 release=50ms
+
+preset reese-bass synth "Detuned reese bass"
+  osc saw voices=2 spread=18 width=0.3
+  osc saw octave=-1 level=0.6
+  filter lowpass cutoff=350 res=0.2 env=1.5 drive=0.6
+  lfo filter rate=0.5 depth=0.4
+  amp attack=5ms decay=0.2 sustain=0.8 release=60ms
+  fenv attack=1ms decay=0.15 sustain=0.2 release=50ms
+
+preset sub-bass synth "Pure sine sub"
+  osc sine octave=-1
+  amp attack=3ms decay=0.1 sustain=0.9 release=60ms
+
+preset rumble synth "Low tail after each kick; sidechain it hard to the drums"
+  osc sine octave=-2 level=0.8
+  noise 0.5
+  filter lowpass cutoff=110 res=0.3
+  amp attack=8ms decay=0.5 sustain=0 release=0.1
+
+preset riser synth "Noise riser: sweep its cutoff over the build"
+  noise 0.8
+  filter bandpass cutoff=200 res=0.6
+  amp attack=13s decay=0.5 sustain=1 release=40ms
+
+preset impact synth "Sub boom with a downward noise sweep"
+  noise 0.7
+  osc sine octave=-2 level=0.9
+  filter lowpass cutoff=150 res=0.2 env=6
+  amp attack=1ms decay=3.5 sustain=0 release=0.5
+  fenv attack=1ms decay=3 sustain=0 release=0.5
+
+preset acid tb303 "TB-303 line, dark and squelchy"
+  wave saw
+  cutoff 0.2
+  resonance 0.8
+  envmod 0.45
+  decay 0.5
+  accent 0.7
+  drive 0.35
+  gate 0.85
+  slide 90ms
+
+preset analog-kit drums "Synthesized drum machine kit"
+  kick decay=0.8 tune=1
+  clap decay=1.1
+  hat gain=-4
+  openhat decay=0.5 gain=-2
+
+preset house-kit samples "Sampled house kit: layered kick, snap clap, cymbals (CC0)"
+  kick    "samples:sonic-pi/bd_haus.wav"            gain=-3
+  kick    "samples:sonic-pi/bd_tek.wav"             gain=-7
+  clap    "samples:sonic-pi/perc_snap.wav"          gain=-4
+  snare   "samples:sonic-pi/elec_hi_snare.wav"      gain=-6
+  hat     "samples:sonic-pi/drum_cymbal_closed.wav" gain=-12
+  openhat "samples:sonic-pi/drum_cymbal_pedal.wav"  gain=-8
+  ride    "samples:sonic-pi/drum_cymbal_hard.wav"   gain=-15
+  crash   "samples:sonic-pi/drum_splash_hard.wav"   gain=-10
+  rim     "samples:sonic-pi/elec_tick.wav"          gain=-8
+  tom     "samples:sonic-pi/drum_tom_lo_hard.wav"   gain=-6
+  amp release=40ms
+  velocity 14
+
+preset techno-kit samples "Sampled techno kit: punchy kick with 808 body (CC0)"
+  kick    "samples:sonic-pi/bd_tek.wav"             gain=-1
+  kick    "samples:sonic-pi/bd_808.wav"             gain=-8
+  clap    "samples:sonic-pi/perc_snap.wav"          gain=-5
+  snare   "samples:sonic-pi/elec_hi_snare.wav"      gain=-7
+  hat     "samples:sonic-pi/drum_cymbal_closed.wav" gain=-11
+  openhat "samples:sonic-pi/drum_cymbal_pedal.wav"  gain=-10
+  ride    "samples:sonic-pi/drum_cymbal_hard.wav"   gain=-16
+  crash   "samples:sonic-pi/drum_splash_hard.wav"   gain=-11
+  rim     "samples:sonic-pi/elec_tick.wav"          gain=-9
+  tom     "samples:sonic-pi/drum_tom_lo_hard.wav"   gain=-7
+  amp release=40ms
+  velocity 14
+
+preset steinway sampler "Logic's Steinway grand (needs Logic or GarageBand content)"
+  load "logic:01 Acoustic Pianos/Steinway Grand Piano 2.exs"
+  amp release=0.5
+  velocity 16
+
+preset string-ensemble sampler "Logic's string ensemble (needs Logic or GarageBand content)"
+  load "logic:09 Orchestral/09 Strings/String Ensemble.exs"
+  amp attack=0.25 release=0.8
+
+preset house master "Glue for house and dream dance: gentle compression, a little air"
+  saturation 0.2
+  comp threshold=-14 ratio=2.2 attack=15ms release=200ms makeup=1
+  eq high=+1.5 highfreq=9k
+  width 1.15
+  reverb size=0.85 decay=0.75 damping=0.4 predelay=25ms
+  delay time=3/16 feedback=0.35 tone=4k
+  limiter ceiling=-1
+
+preset techno master "Glue for melodic techno: darker, tighter"
+  saturation 0.3
+  comp threshold=-14 ratio=2.5 attack=15ms release=200ms makeup=1
+  eq high=-1 highfreq=10k
+  width 1.1
+  reverb size=0.9 decay=0.8 damping=0.35 predelay=30ms
+  delay time=3/16 feedback=0.42 tone=3k
+  limiter ceiling=-1
+
+preset trance master "Glue for trance: bright, loud"
+  saturation 0.3
+  comp threshold=-14 ratio=2.5 attack=15ms release=200ms makeup=1
+  eq high=+2 highfreq=8k
+  width 1.2
+  reverb size=0.85 decay=0.7 damping=0.4 predelay=25ms
+  delay time=3/16 feedback=0.38 tone=4k
+  limiter ceiling=-1

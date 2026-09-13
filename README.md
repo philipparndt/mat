@@ -24,6 +24,7 @@ cargo build --release
 ./target/release/mat play   examples/drunken-sailor.song   # render and play
 ./target/release/mat export examples/drunken-sailor.song   # arranged timeline as JSON
 ./target/release/mat inspect "logic:01 Acoustic Pianos/Steinway Grand Piano 2.exs"
+./target/release/mat presets                                # built-in instrument and master presets
 ```
 
 Audio Unit instruments (macOS) need the Swift host:
@@ -59,6 +60,7 @@ swift build -c release --package-path swift
 | `examples/drunken-sailor-trance.song` | trance with supersaws, sidechain pumping, chorus and EQ |
 | `examples/drunken-sailor-trance-surge.song` | the same trance with Surge XT patches (needs Surge XT) |
 | `examples/acid.song` | TB-303 acid line with accents, slides and knob sweeps |
+| `examples/dream.song` | dream dance: Steinway piano with pedal, pads, string swells, house kit, all from presets (needs Logic content) |
 
 ## Adaptive game music
 

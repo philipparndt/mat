@@ -147,6 +147,24 @@ pub fn render(timeline: &Timeline, sample_rate: u32, mut stems: HashMap<usize, S
         if let Some(duck) = &track.duck {
             apply_duck(duck, start, &mut left, &mut right, sr);
         }
+        let gain_sweeps: Vec<&crate::arrange::Sweep> = track.sweeps.iter().filter(|s| s.param == "gain").collect();
+        if !gain_sweeps.is_empty() {
+            for i in 0..left.len() {
+                let t = (start + i) as f64 / sr as f64;
+                let mut db = None;
+                for s in &gain_sweeps {
+                    if t >= s.start {
+                        let x = if s.end > s.start { ((t - s.start) / (s.end - s.start)).clamp(0.0, 1.0) as f32 } else { 1.0 };
+                        db = Some(s.from + (s.to - s.from) * x);
+                    }
+                }
+                if let Some(db) = db {
+                    let g = db_to_gain(db);
+                    left[i] *= g;
+                    right[i] *= g;
+                }
+            }
+        }
         let gain = db_to_gain(track.gain_db);
         let (pl, pr) = pan_gains(track.pan);
         let (gl, gr) = (gain * pl, gain * pr);
@@ -200,6 +218,17 @@ pub fn render(timeline: &Timeline, sample_rate: u32, mut stems: HashMap<usize, S
     let master_gain = db_to_gain(master.gain_db);
     for s in left.iter_mut().chain(right.iter_mut()) {
         *s *= master_gain;
+    }
+    if let Some(eq) = &master.eq {
+        apply_eq(eq, &mut left, &mut right, sr);
+    }
+    if (master.width - 1.0).abs() > 1e-3 {
+        for i in 0..left.len() {
+            let mid = (left[i] + right[i]) * 0.5;
+            let side = (left[i] - right[i]) * 0.5 * master.width;
+            left[i] = mid + side;
+            right[i] = mid - side;
+        }
     }
     if master.saturation > 0.0 {
         crate::dsp::dynamics::saturate(master.saturation, &mut left, &mut right);

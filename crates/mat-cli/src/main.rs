@@ -82,6 +82,8 @@ enum Command {
         #[arg(long)]
         filter: Option<String>,
     },
+    /// List the built-in presets (`instrument x preset <name>`, `master preset <name>`).
+    Presets,
     /// Show what an .exs sampler instrument contains (paths accept logic: and garageband:).
     Inspect { instrument: String },
     /// Export the arranged timeline as JSON (input for external renderers).
@@ -183,6 +185,11 @@ fn run(cli: Cli) -> anyhow::Result<ExitCode> {
         Command::Play { song } => {
             let Some(timeline) = load(&song)? else { return Ok(ExitCode::FAILURE) };
             play(&timeline)?;
+        }
+        Command::Presets => {
+            for p in mat_core::presets::library().all() {
+                println!("{:<16} {:<8} {}", p.name, p.kind, p.description);
+            }
         }
         Command::Inspect { instrument } => inspect(&instrument)?,
         Command::PluginParams { plugin, filter } => {

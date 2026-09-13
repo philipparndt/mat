@@ -199,13 +199,14 @@ pub fn arrange(song: &Song) -> Result<Timeline, Vec<Diagnostic>> {
         for s in &track.sweeps {
             const SYNTH_PARAMS: [&str; 2] = ["cutoff", "res"];
             let (valid, names): (bool, &[&str]) = match &kind {
+                _ if s.param == "gain" => (true, &[]),
                 InstrumentKind::Tb303(_) => (Tb303Param::from_name(&s.param).is_some(), &Tb303Param::NAMES),
                 InstrumentKind::Synth(_) => (SYNTH_PARAMS.contains(&s.param.as_str()), &SYNTH_PARAMS),
                 _ => (false, &[]),
             };
             if !valid {
                 let d = if names.is_empty() {
-                    Diagnostic::error(s.span, "sweeps work on synth and tb303 instruments")
+                    Diagnostic::error(s.span, "only 'gain' can be swept on this track (synth: cutoff, res; tb303: its knobs)")
                 } else {
                     Diagnostic::error(s.span, format!("{} has no sweepable parameter '{}'", kind_label(&kind), s.param))
                         .with_hint(did_you_mean(&s.param, names.iter().copied()).unwrap_or_else(|| format!("sweepable: {}", names.join(", "))))
@@ -316,7 +317,17 @@ pub fn resolve_load_path(load: &str, song_dir: &Path) -> String {
     const GARAGEBAND: &str = "/Library/Application Support/GarageBand/Instrument Library/Sampler/Sampler Instruments";
     const GM: &str = "/System/Library/Components/CoreAudio.component/Contents/Resources/gs_instruments.dls";
     const SURGE: &str = if cfg!(target_os = "macos") { "/Library/Application Support/Surge XT" } else { "/usr/share/surge-xt" };
-    let resolved = if load == "gm" {
+    let assets = std::env::var_os("MAT_ASSETS").map(std::path::PathBuf::from).unwrap_or_else(|| {
+        // <repo>/assets/samples, found relative to the binary in the development layout.
+        std::env::current_exe()
+            .ok()
+            .and_then(|e| e.parent().and_then(Path::parent).and_then(Path::parent).map(|r| r.join("assets/samples")))
+            .filter(|p| p.is_dir())
+            .unwrap_or_else(|| Path::new("assets/samples").to_path_buf())
+    });
+    let resolved = if let Some(rest) = load.strip_prefix("samples:") {
+        assets.join(rest)
+    } else if load == "gm" {
         Path::new(GM).to_path_buf()
     } else if let Some(rest) = load.strip_prefix("logic:") {
         Path::new(LOGIC).join(rest)

@@ -69,11 +69,28 @@ pattern beat grid=1/16
 Cells: `x` hit (100), `X` accent (127), `o` soft (60), `1`–`9` velocity,
 `=` holds the previous hit one more step, `.` `-` `_` rest. Spaces and `|` are ignored.
 
+### Sustain pedal
+
+`pattern theme pedal` holds every note until the end of its bar, like a pedal
+lifted on each chord change. Meant for piano patterns.
+
 ### Pattern length
 
 A pattern is rounded up to whole bars, unless you set `bars=<n>`.
 
 ## Instruments
+
+### Presets
+
+```
+instrument pad preset dream-pad      # start from a built-in preset ...
+  filter lowpass cutoff=600          # ... and override or add settings
+instrument kit preset house-kit
+master preset house
+```
+
+`mat presets` lists them: pads, leads, plucks, basses, a 303, sampled drum kits,
+Logic's Steinway and strings, and master chains per genre.
 
 ### `synth`: subtractive synthesizer
 
@@ -224,6 +241,7 @@ track melody
 ```
   sweep cutoff from=0.2 to=0.7 bars=9-16     # tb303 knobs: cutoff, resonance, envmod, decay, accent, drive
   sweep cutoff from=300 to=6000 bars=25-32   # synth: cutoff in Hz (moves logarithmically), res 0..1
+  sweep gain from=-14 to=0 bars=25-32        # any track: a volume curve in dB (swells, fades)
 ```
 
 A sweep moves through its bars and then holds the end value.
@@ -251,6 +269,8 @@ pattern; `play all` does not.
 ```
 master
   gain 3
+  eq high=+1.5 highfreq=9k                              # same options as a track eq
+  width 1.15                                            # stereo width: 0 mono, 1 as mixed, up to 2
   reverb size=0.8 decay=0.7 damping=0.4 predelay=20ms   # or: reverb off
   delay time=3/16 feedback=0.35 tone=3k                 # time is a note value
   saturation 0.3                                        # tape-style, 0..1
@@ -258,7 +278,7 @@ master
   limiter ceiling=-1 release=80ms                       # or: limiter off
 ```
 
-Order on the master: gain, saturation, compressor, limiter.
+Order on the master: gain, eq, width, saturation, compressor, limiter.
 
 ## Rendering for games
 

@@ -530,6 +530,9 @@ pub struct CompSettings {
 #[derive(Debug, Clone, Serialize)]
 pub struct Master {
     pub gain_db: f32,
+    pub eq: Option<EqSettings>,
+    /// Stereo width: 1 = as mixed, 0 = mono, up to 2.
+    pub width: f32,
     pub comp: Option<CompSettings>,
     /// 0..1 tape-style saturation before the limiter.
     pub saturation: f32,
@@ -542,6 +545,8 @@ impl Default for Master {
     fn default() -> Self {
         Self {
             gain_db: 0.0,
+            eq: None,
+            width: 1.0,
             comp: None,
             saturation: 0.0,
             reverb: ReverbSettings { enabled: true, size: 0.7, decay: 0.7, damping: 0.4, predelay_ms: 20.0 },

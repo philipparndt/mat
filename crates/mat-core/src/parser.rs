@@ -4,6 +4,7 @@ use std::collections::HashSet;
 
 use crate::diag::{Diagnostic, Span, did_you_mean, has_errors};
 use crate::lexer::{Line, Token, lex};
+use crate::presets;
 use crate::model::*;
 
 const TOP_LEVEL: &[&str] = &["title", "tempo", "meter", "section", "instrument", "pattern", "track", "master"];
@@ -17,9 +18,47 @@ struct Block<'a> {
 pub fn parse(source: &str) -> (Option<Song>, Vec<Diagnostic>) {
     let mut diags = Vec::new();
     let lines = lex(source, &mut diags);
+    let lib = presets::library();
+
+    // `instrument x preset y` and `master preset y` get a synthesized header and
+    // the preset's lines in front of their own body.
+    let mut arena: Vec<Line> = Vec::new();
+    let mut expansions: Vec<(usize, Option<usize>, Vec<&'static Line>)> = Vec::new();
+    for (i, line) in lines.iter().enumerate() {
+        if line.indented {
+            continue;
+        }
+        let t = &line.tokens;
+        let (preset_at, kw) = match t.first().map(|t| t.text.as_str()) {
+            Some("instrument") if t.len() >= 4 && t[2].text == "preset" => (3, "instrument"),
+            Some("master") if t.len() >= 3 && t[1].text == "preset" => (2, "master"),
+            _ => continue,
+        };
+        let name = &t[preset_at].text;
+        match lib.get(name) {
+            Some(preset) if (kw == "master") == (preset.kind == "master") => {
+                let mut header = Line { indented: false, tokens: Vec::new() };
+                header.tokens.push(t[0].clone());
+                if kw == "instrument" {
+                    header.tokens.push(t[1].clone());
+                    header.tokens.push(Token { text: preset.kind.clone(), span: t[2].span });
+                }
+                header.tokens.extend(t[preset_at + 1..].iter().cloned());
+                arena.push(header);
+                expansions.push((i, Some(arena.len() - 1), preset.lines.clone()));
+            }
+            Some(_) => diags.push(Diagnostic::error(t[preset_at].span, format!("preset '{name}' is not for {kw}"))),
+            None => {
+                let mut d = Diagnostic::error(t[preset_at].span, format!("unknown preset '{name}'"));
+                d = d.with_hint(did_you_mean(name, lib.names()).unwrap_or_else(|| "list presets with: mat presets".into()));
+                diags.push(d);
+                expansions.push((i, None, Vec::new()));
+            }
+        }
+    }
 
     let mut blocks: Vec<Block> = Vec::new();
-    for line in &lines {
+    for (i, line) in lines.iter().enumerate() {
         if line.indented {
             match blocks.last_mut() {
                 Some(block) => block.body.push(line),
@@ -28,6 +67,9 @@ pub fn parse(source: &str) -> (Option<Song>, Vec<Diagnostic>) {
                     "indented line does not belong to any block",
                 )),
             }
+        } else if let Some((_, header, body)) = expansions.iter().find(|(idx, _, _)| *idx == i) {
+            let header = header.map_or(line, |h| &arena[h]);
+            blocks.push(Block { header, body: body.clone() });
         } else {
             blocks.push(Block { header: line, body: Vec::new() });
         }
@@ -691,6 +733,7 @@ impl Parser {
         let bar = self.song.bar_length();
         let mut grid: Option<Whole> = None;
         let mut bars: Option<f64> = None;
+        let mut pedal = false;
         for tok in &line.tokens[2..] {
             if tok.text == "grid" {
                 grid = Some(1.0 / 16.0);
@@ -702,7 +745,8 @@ impl Parser {
                     None => self.err_hint(tok.span, format!("invalid grid step '{v}'"), "use a duration such as 1/16 or s"),
                 },
                 Some(("bars", v)) => bars = self.value(tok, v, 0.0, 10_000.0),
-                _ => self.err_hint(tok.span, format!("unexpected '{}'", tok.text), "pattern options are: grid=<step>, bars=<count>"),
+                None if tok.text == "pedal" => pedal = true,
+                _ => self.err_hint(tok.span, format!("unexpected '{}'", tok.text), "pattern options are: grid=<step>, bars=<count>, pedal"),
             }
         }
 
@@ -710,7 +754,14 @@ impl Parser {
             Some(step) => self.grid_body(block, step),
             None => self.melodic_body(block, bar),
         };
-        let Some((events, content_len)) = result else { return };
+        let Some((mut events, content_len)) = result else { return };
+        if pedal {
+            // Sustain pedal, lifted at every bar line: notes ring to the end of their bar.
+            for ev in &mut events {
+                let bar_end = ((ev.start + EPS) / bar).floor() * bar + bar;
+                ev.duration = ev.duration.max(bar_end - ev.start);
+            }
+        }
 
         if events.is_empty() && bars.is_none() {
             self.err_hint(span, format!("pattern '{name}' is empty"), "add notes, or give it a length with bars=N");
@@ -964,23 +1015,7 @@ impl Parser {
                     }
                     track.audio = Some((source, t.span));
                 }
-                "eq" => {
-                    let mut eq = EqSettings::default();
-                    for (key, val, tok) in self.options(line, 1) {
-                        match key {
-                            "lowcut" => set(&mut eq.lowcut_hz, self.hz(tok, val)),
-                            "low" => set(&mut eq.low_db, self.db(tok, val)),
-                            "lowfreq" => set(&mut eq.low_freq_hz, self.hz(tok, val)),
-                            "mid" => set(&mut eq.mid_db, self.db(tok, val)),
-                            "midfreq" => set(&mut eq.mid_freq_hz, self.hz(tok, val)),
-                            "high" => set(&mut eq.high_db, self.db(tok, val)),
-                            "highfreq" => set(&mut eq.high_freq_hz, self.hz(tok, val)),
-                            "highcut" => set(&mut eq.highcut_hz, self.hz(tok, val)),
-                            _ => self.unknown_option(tok, key, "eq", &["lowcut", "low", "lowfreq", "mid", "midfreq", "high", "highfreq", "highcut"]),
-                        }
-                    }
-                    track.eq = Some(eq);
-                }
+                "eq" => track.eq = Some(self.eq_options(line)),
                 "chorus" => {
                     let mut chorus = ChorusSettings::default();
                     for (key, val, tok) in self.options(line, 1) {
@@ -1100,11 +1135,42 @@ impl Parser {
         self.song.tracks.push(track);
     }
 
+    fn eq_options(&mut self, line: &Line) -> EqSettings {
+        let mut eq = EqSettings::default();
+        for (key, val, tok) in self.options(line, 1) {
+            match key {
+                "lowcut" => set(&mut eq.lowcut_hz, self.hz(tok, val)),
+                "low" => set(&mut eq.low_db, self.db(tok, val)),
+                "lowfreq" => set(&mut eq.low_freq_hz, self.hz(tok, val)),
+                "mid" => set(&mut eq.mid_db, self.db(tok, val)),
+                "midfreq" => set(&mut eq.mid_freq_hz, self.hz(tok, val)),
+                "high" => set(&mut eq.high_db, self.db(tok, val)),
+                "highfreq" => set(&mut eq.high_freq_hz, self.hz(tok, val)),
+                "highcut" => set(&mut eq.highcut_hz, self.hz(tok, val)),
+                _ => self.unknown_option(tok, key, "eq", &["lowcut", "low", "lowfreq", "mid", "midfreq", "high", "highfreq", "highcut"]),
+            }
+        }
+        eq
+    }
+
     fn master(&mut self, block: &Block) {
         self.extra_tokens(block.header, 1);
         let mut m = std::mem::take(&mut self.song.master);
         for line in &block.body {
             let kw = &line.tokens[0];
+            match kw.text.as_str() {
+                "eq" => {
+                    m.eq = Some(self.eq_options(line));
+                    continue;
+                }
+                "width" => {
+                    if let Some(t) = self.arg(line, 1, "width 0..2") {
+                        set(&mut m.width, self.value(t, &t.text, 0.0, 2.0));
+                    }
+                    continue;
+                }
+                _ => {}
+            }
             let off = line.tokens.get(1).is_some_and(|t| t.text == "off");
             match kw.text.as_str() {
                 "gain" => {
@@ -1174,7 +1240,7 @@ impl Parser {
                         }
                     }
                 }
-                other => self.unknown_keyword(kw, other, "the master block", &["gain", "reverb", "delay", "comp", "saturation", "limiter"]),
+                other => self.unknown_keyword(kw, other, "the master block", &["gain", "eq", "width", "reverb", "delay", "comp", "saturation", "limiter"]),
             }
         }
         self.song.master = m;

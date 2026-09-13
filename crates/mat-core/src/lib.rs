@@ -11,6 +11,7 @@ mod lexer;
 pub mod midi;
 pub mod model;
 pub mod parser;
+pub mod presets;
 pub mod render;
 pub mod sampler;
 pub mod wav;

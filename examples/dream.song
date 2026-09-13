@@ -1,0 +1,313 @@
+# Dream — dream dance / dream house (mid-90s style): a piano melody in front,
+# soft pads, four-on-the-floor with offbeat open hats, piano-only breakdowns.
+# Original melody. A minor, 136 BPM, chord loop Am | Am | F | F | C | C | G | G.
+#
+# Built from presets (see `mat presets`). The piano and the strings need Logic
+# or GarageBand content; everything else is built in.
+# Layers (stems): piano, pad, strings, bass, drums, lead, fx
+
+title "Dream"
+tempo 136
+meter 4/4
+
+section intro      bars=1-8
+section theme      bars=9-24
+section groove     bars=25-40
+section breakdown  bars=41-48
+section build      bars=49-56
+section main       bars=57-88
+section breakdown2 bars=89-96
+section final      bars=97-112
+section outro      bars=113-116
+
+# ------------------------------------------------------------ instruments
+
+instrument piano preset steinway
+instrument strings preset string-ensemble
+instrument pad preset dream-pad
+instrument choir preset choir-pad
+instrument bass preset organ-bass
+instrument lead preset dream-lead
+instrument riser preset riser
+instrument impact preset impact
+instrument kit preset house-kit
+
+# ------------------------------------------------------------ piano
+# `pedal` holds every note to the end of its bar, like a sustain pedal
+# lifted on each chord change.
+
+pattern theme pedal
+  E5:e C5 A4:q E5:e C5 B4:q   | A4:h. r:q          |
+  F5:e C5 A4:q F5:e E5 D5:q   | C5:h. r:q          |
+  E5:e C5 G4:q E5:e D5 C5:q   | G5:h E5:q C5:q     |
+  D5:e B4 G4:q D5:e E5 F#5:q  | B4:h. r:q          |
+
+pattern theme_high pedal
+  A5:e E5 C5 E5 A5:e E5 C5:q  | B5:e A5 E5 A5 B5:e A5 E5:q  |
+  A5:e F5 C5 F5 A5:e F5 C5:q  | C6:e A5 F5 A5 C6:e A5 F5:q  |
+  G5:e E5 C5 E5 G5:e E5 C5:q  | C6:e G5 E5 G5 C6:e G5 E5:q  |
+  G5:e D5 B4 D5 G5:e D5 B4:q  | B5:e G5 D5 G5 B5:e@110 G5 D5:q |
+
+pattern left pedal
+  A2:e@78 E3@68 C4@72 E3@66 A2@78 E3@68 C4@72 E3@66   | A2@78 E3@68 C4@72 E3@66 A2@78 E3@68 C4@72 E3@66   |
+  F2@78 C3@68 A3@72 C3@66 F2@78 C3@68 A3@72 C3@66     | F2@78 C3@68 A3@72 C3@66 F2@78 C3@68 A3@72 C3@66   |
+  C3@78 G3@68 E4@72 G3@66 C3@78 G3@68 E4@72 G3@66     | C3@78 G3@68 E4@72 G3@66 C3@78 G3@68 E4@72 G3@66   |
+  G2@78 D3@68 B3@72 D3@66 G2@78 D3@68 B3@72 D3@66     | G2@78 D3@68 B3@72 D3@66 G2@78 D3@68 B3@72 D3@66   |
+
+pattern left_soft pedal
+  [A2 E3 C4]:w@68 | [A2 E3 C4]:w@58 | [F2 C3 A3]:w@68 | [F2 C3 A3]:w@58 |
+  [C3 G3 E4]:w@68 | [C3 G3 E4]:w@58 | [G2 D3 B3]:w@68 | [G2 D3 B3]:w@58 |
+
+pattern final_chord
+  [A2 E3 A3 C4 E4 A4]:w@92 |
+
+# ------------------------------------------------------------ pads, strings, bass
+
+pattern chords
+  [A3 C4 E4]:w | [A3 C4 E4]:w | [F3 A3 C4]:w | [F3 A3 C4]:w |
+  [C4 E4 G4]:w | [C4 E4 G4]:w | [G3 B3 D4]:w | [G3 B3 D4]:w |
+
+pattern strings
+  [A4 E5 C6]:w@75 | [A4 E5 C6]:w@75 | [A4 C5 F5]:w@75 | [A4 C5 F5]:w@75 |
+  [G4 C5 E5]:w@75 | [G4 C5 E5]:w@75 | [G4 B4 D5]:w@75 | [G4 B4 D5]:w@75 |
+
+# Octave-hopping offbeat bass.
+pattern bass
+  r:e A1 r A2 r A1 r A2   | r A1 r A2 r A1 A1 A2   |
+  r F1 r F2 r F1 r F2     | r F1 r F2 r F1 F1 F2   |
+  r C2 r C3 r C2 r C3     | r C2 r C3 r C2 C2 C3   |
+  r G1 r G2 r G1 r G2     | r G1 r G2 r G1 G1 G2   |
+
+# ------------------------------------------------------------ drums
+
+pattern kick_soft grid=1/16
+  kick    x...x...x...x...
+  hat     ..o...o...o...o.
+
+pattern beat grid=1/16
+  kick    X...X...X...X...
+  clap    ....X.......X...
+  openhat ..x...x...x...x.
+  hat     x.o.x.o.x.o.x.o.
+
+pattern beat_ride grid=1/16
+  kick    X...X...X...X...
+  clap    ....X.......X...
+  openhat ..x...x...x...x.
+  hat     x.o.x.o.x.o.x.o.
+  ride    x...x...x...x...
+
+pattern beat_fill grid=1/16
+  kick    X...X...X...X...
+  clap    ....X.......X...
+  openhat ..x...x...x.....
+  hat     x.o.x.o.x.o.x.o.
+  snare   ............x6x9
+
+pattern beat_crash grid=1/16
+  kick    X...X...X...X...
+  clap    ....X.......X...
+  openhat ..x...x...x...x.
+  hat     x.o.x.o.x.o.x.o.
+  crash   X...............
+
+pattern roll_q grid=1/16
+  snare 3...4...4...5...
+  kick  X.......X.......
+
+pattern roll_e grid=1/16
+  snare 5.5.6.6.6.6.7.7.
+  kick  X.......X.......
+
+pattern roll_s grid=1/16
+  snare 6666777788889999
+
+pattern roll_up grid=1/16
+  snare 7777888899999999
+  kick  X.......X.......
+
+pattern break_hit grid=1/16
+  kick  X...............
+  crash X...............
+
+pattern impact_note
+  A2:w
+
+pattern riser_note
+  A4:8/1
+
+# ------------------------------------------------------------ arrangement
+
+track piano
+  instrument piano
+  layer piano
+  gain 0
+  reverb 0.35
+  delay 0.1
+  eq lowcut=80 high=+2 highfreq=6k
+  play theme x2 vel=0.7
+  play theme
+  play theme_high
+  play theme x2
+  play theme vel=0.75
+  play theme_high vel=0.9
+  play theme
+  play theme_high
+  play theme
+  play theme_high
+  play theme vel=0.8
+  play theme_high
+  play theme
+  play final_chord
+
+track piano_left
+  instrument piano
+  layer piano
+  gain -3
+  reverb 0.3
+  eq lowcut=60
+  play left_soft
+  play left x4
+  play left_soft
+  play left x5
+  play left_soft
+  play left x2
+
+track pad
+  instrument pad
+  layer pad
+  gain -1
+  reverb 0.5
+  eq lowcut=200 high=+2 highfreq=5k
+  chorus mix=0.5
+  sidechain drums depth=0.6 release=0.3
+  play chords x14
+  at 113
+  play chords
+
+track choir
+  instrument choir
+  layer pad
+  gain -4
+  pan -0.2
+  reverb 0.6
+  eq lowcut=300
+  sidechain drums depth=0.5 release=0.3
+  at 57
+  play chords x4
+  at 97
+  play chords x2
+
+track strings
+  instrument strings
+  layer strings
+  gain +1
+  reverb 0.5
+  eq lowcut=200
+  sidechain drums depth=0.5 release=0.3
+  sweep gain from=-14 to=0 bars=25-32
+  sweep gain from=-6 to=0 bars=57-64
+  sweep gain from=-10 to=0 bars=89-92
+  at 25
+  play strings x2
+  at 57
+  play strings x4
+  at 89
+  play strings x3
+
+track bass
+  instrument bass
+  layer bass
+  gain -2
+  eq lowcut=30
+  sidechain drums depth=0.6 release=0.2
+  at 25
+  play bass x2
+  at 57
+  play bass x4
+  at 97
+  play bass x2
+
+track lead
+  instrument lead
+  layer lead
+  gain -8
+  pan 0.15
+  reverb 0.4
+  delay 0.25
+  eq lowcut=300 high=+2 highfreq=5k
+  chorus mix=0.3
+  sidechain drums depth=0.4
+  at 73
+  play theme_high
+  at 105
+  play theme_high
+
+track drums
+  instrument kit
+  layer drums
+  gain -9
+  reverb 0.05
+  eq low=-2 lowfreq=70 high=+2 highfreq=7k
+  at 9
+  play kick_soft x8
+  play beat x8
+  play beat_crash
+  play beat x6
+  play beat_fill
+  play beat_crash
+  play beat x6
+  play beat_fill
+  play break_hit
+  rest 7
+  play roll_q x4
+  play roll_e x2
+  play roll_s
+  play roll_up
+  play beat_crash
+  play beat_ride x6
+  play beat_fill
+  play beat_crash
+  play beat_ride x6
+  play beat_fill
+  play beat_crash
+  play beat_ride x6
+  play beat_fill
+  play beat_crash
+  play beat_ride x6
+  play beat_fill
+  play break_hit
+  rest 7
+  play beat_crash
+  play beat_ride x6
+  play beat_fill
+  play beat_crash
+  play beat_ride x6
+  play beat_fill
+  play break_hit
+
+track riser
+  instrument riser
+  layer fx
+  gain -4
+  reverb 0.4
+  sweep cutoff from=250 to=5000 bars=49-56
+  at 49
+  play riser_note
+
+track impact
+  instrument impact
+  layer fx
+  gain -6
+  reverb 0.6
+  at 25
+  play impact_note
+  at 57
+  play impact_note
+  at 97
+  play impact_note
+  at 113
+  play impact_note
+
+master preset house
+  gain 2
