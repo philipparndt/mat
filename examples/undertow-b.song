@@ -26,6 +26,7 @@ swing 0.54
 
 instrument kit preset techno-kit
 instrument rumble preset rumble
+instrument shaker preset tabla-kit
 instrument bass preset rolling-bass
   filter lowpass cutoff=300 res=0.2 env=1.6 drive=0.35
   lfo filter rate=0.03 depth=0.5
@@ -178,6 +179,10 @@ pattern groove_half grid=1/16
   hat     x.x.x.x.........
   clap    ....x...........
 
+pattern shaker grid=1/16
+  hat     x.o.x.o.x.o.x.o.
+  openhat ...x.......x....
+
 pattern break_hit grid=1/16
   kick  X...............
   crash X...............
@@ -196,9 +201,9 @@ pattern riser_note
 track drums
   instrument kit
   layer drums
-  gain -17
+  gain -15
   reverb 0.05
-  eq low=-2 lowfreq=70 high=+2 highfreq=7k
+  eq low=-1 lowfreq=70 mid=+2 midfreq=4k high=+5 highfreq=8k
   comp threshold=-14 ratio=4 attack=6ms release=110ms makeup=4 mode=feedback
   play kick_hats x4
   play groove x3
@@ -238,10 +243,25 @@ track drums
   play kick_hats x3
   play break_hit
 
+track shaker
+  instrument shaker
+  layer drums
+  gain -14
+  pan 0.25
+  reverb 0.1
+  eq lowcut=800 high=+4 highfreq=8k
+  humanize time=5ms vel=12
+  at 9
+  play shaker x24
+  at 33
+  play shaker x16
+  at 65
+  play shaker x32
+
 track rumble
   instrument rumble
   layer rumble
-  gain +2
+  gain +4
   sidechain drums depth=0.95 attack=2ms release=0.12
   play rumble x32
   at 33
@@ -254,7 +274,7 @@ track rumble
 track bass
   instrument bass
   layer bass
-  gain -1.5
+  gain +3
   eq lowcut=30
   sidechain drums depth=0.85 attack=3ms release=0.22
   at 9
@@ -267,11 +287,11 @@ track bass
 track arp
   instrument arp
   layer arp
-  gain +5
+  gain +2
   pan -0.15
   reverb 0.3
   delay 0.4
-  eq lowcut=250 high=+2 highfreq=4k
+  eq lowcut=400 mid=-3 midfreq=800 high=+2 highfreq=5k
   chorus mix=0.25
   sidechain drums depth=0.5 release=0.2
   sweep cutoff from=300 to=900 bars=9-24
@@ -291,9 +311,9 @@ track arp
 track pad
   instrument pad
   layer pad
-  gain -3
+  gain -6
   reverb 0.55
-  eq lowcut=150 high=+2 highfreq=5k
+  eq lowcut=250 mid=-4 midfreq=600 high=+1 highfreq=5k
   chorus mix=0.5
   sidechain drums depth=0.75 release=0.3
   sweep cutoff from=450 to=800 bars=17-32
@@ -308,7 +328,7 @@ track pad
 track lead
   instrument lead
   layer lead
-  gain -8
+  gain -10
   pan 0.1
   reverb 0.45
   delay 0.4
@@ -339,7 +359,7 @@ track counter
 track acid
   instrument acid
   layer acid
-  gain -11
+  gain -12
   pan 0.2
   reverb 0.3
   delay 0.3
@@ -389,5 +409,10 @@ track impact
   play impact_note
 
 master preset techno
-  gain 2
-  sidechain drums threshold=-30 ratio=8 attack=1ms release=140ms darken=3
+  gain 12
+  width 0.85
+  saturation 0.35
+  comp threshold=-20 ratio=3.5 attack=8ms release=120ms makeup=3
+  clip -2
+  limiter ceiling=-0.3 release=60ms
+  sidechain drums threshold=-32 ratio=8 attack=1ms release=110ms darken=3
