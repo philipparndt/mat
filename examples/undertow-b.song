@@ -160,9 +160,10 @@ pattern roll_up grid=1/16
   snare 7777888899999999
   kick  X.......X.......
 
-# One strong, slow scratch over the last two beats before the synth comes in.
-pattern cut_one grid=1/2
-  baby .x
+# A scratch in time with the track before the synth comes in: one baby per
+# beat on beats 3 and 4 (forward on the first 8th, back on the second).
+pattern cut_one grid=1/4
+  baby ..xx
 
 pattern break_hit grid=1/16
   kick  X...............
