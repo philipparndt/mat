@@ -7,7 +7,9 @@ pub mod diag;
 pub mod dsp;
 pub mod import;
 pub mod instruments;
-mod lexer;
+/// Public for the language server, which reads a file being typed as lines
+/// of tokens with their spans — the parser's view before it has an opinion.
+pub mod lexer;
 pub mod midi;
 pub mod model;
 pub mod parser;

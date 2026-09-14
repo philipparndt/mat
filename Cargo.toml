@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["crates/mat-core", "crates/mat-cli"]
+members = ["crates/mat-core", "crates/mat-cli", "crates/mat-lsp"]
 
 [workspace.package]
 version = "0.1.0"

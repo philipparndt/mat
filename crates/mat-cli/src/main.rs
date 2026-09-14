@@ -92,6 +92,8 @@ enum Command {
         #[arg(short, long)]
         output: Option<PathBuf>,
     },
+    /// Run the language server for .song files over stdin and stdout (for editors).
+    Lsp,
 }
 
 #[derive(Clone, Copy, ValueEnum)]
@@ -215,6 +217,9 @@ fn run(cli: Cli) -> anyhow::Result<ExitCode> {
                 .context("meter must look like 4/4")?;
             let options = mat_core::import::ImportOptions { name, tempo, bar_quarters: num * 4.0 / den, offset, bars_per_pattern: bars, drums, ignore_velocity, legato, similarity };
             print!("{}", mat_core::import::to_song_text(&notes, &options));
+        }
+        Command::Lsp => {
+            mat_lsp::run_stdio().map_err(|e| anyhow::anyhow!("{e}"))?;
         }
         Command::Export { song, output } => {
             let Some(timeline) = load(&song)? else { return Ok(ExitCode::FAILURE) };
