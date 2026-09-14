@@ -141,7 +141,7 @@ pub fn arrange(song: &Song) -> Result<Timeline, Vec<Diagnostic>> {
             match step {
                 TrackStep::At { bar: b } => cursor = (b - 1.0) * bar,
                 TrackStep::Rest { bars } => cursor += bars * bar,
-                TrackStep::PlayAudio { bars, repeat } => {
+                TrackStep::PlayAudio { bars, repeat, .. } => {
                     let Some((source, _)) = &track.audio else { continue };
                     for _ in 0..*repeat {
                         match bars {

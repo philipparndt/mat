@@ -228,7 +228,7 @@ impl Parser {
                     let _ = prev;
                     self.err(span, format!("section '{name}' is defined twice"));
                 }
-                self.song.sections.push(Section { name, from_bar: a, to_bar: b });
+                self.song.sections.push(Section { name, line: span.line, from_bar: a, to_bar: b });
             }
             _ => self.err_hint(t.span, format!("invalid bar range '{}'", t.text), "write it like: section chorus bars=17-32"),
         }
@@ -957,7 +957,7 @@ impl Parser {
                     dur = d;
                 }
                 for pitch in ev.pitches {
-                    events.push(PatternEvent { start: pos, duration: dur, pitch, velocity: ev.velocity, accent: ev.accent, slide: ev.slide });
+                    events.push(PatternEvent { line: tok.span.line, start: pos, duration: dur, pitch, velocity: ev.velocity, accent: ev.accent, slide: ev.slide });
                 }
                 pos += dur;
             }
@@ -1004,7 +1004,7 @@ impl Parser {
                     held = None;
                     if let Some(velocity) = velocity {
                         held = Some(events.len());
-                        events.push(PatternEvent { start: steps as f64 * step, duration: step, pitch, velocity, accent: c == 'X', slide: false });
+                        events.push(PatternEvent { line: name_tok.span.line, start: steps as f64 * step, duration: step, pitch, velocity, accent: c == 'X', slide: false });
                     }
                     steps += 1;
                 }
@@ -1295,7 +1295,7 @@ impl Parser {
                         self.err_hint(kw.span, "missing what to play", "write: play all, or play bars=17-24");
                         continue;
                     }
-                    track.steps.push(TrackStep::PlayAudio { bars, repeat });
+                    track.steps.push(TrackStep::PlayAudio { bars, repeat, line: kw.span.line });
                 }
                 "play" => {
                     let Some(t) = self.arg(line, 1, "pattern name") else { continue };

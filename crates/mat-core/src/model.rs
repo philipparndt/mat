@@ -106,6 +106,10 @@ pub enum Pitch {
 
 #[derive(Debug, Clone, Serialize)]
 pub struct PatternEvent {
+    /// The source line the event was written on, 1-based: where in the text
+    /// a note is, for an editor to show where in the song it sounds. Never
+    /// part of a render's input, so moving a line changes nothing heard.
+    pub line: usize,
     pub start: Whole,
     pub duration: Whole,
     pub pitch: Pitch,
@@ -570,7 +574,8 @@ pub struct Instrument {
 pub enum TrackStep {
     Play { pattern: String, span: Span, repeat: u32, transpose: f32, velocity: f32 },
     /// Audio tracks: source bars `from..=to` (1-based), or the whole file.
-    PlayAudio { bars: Option<(f64, f64)>, repeat: u32 },
+    /// `line` is where it was written, 1-based, for an editor.
+    PlayAudio { bars: Option<(f64, f64)>, repeat: u32, line: usize },
     Rest { bars: f64 },
     At { bar: f64 },
 }
@@ -701,6 +706,9 @@ impl Default for Master {
 #[derive(Debug, Clone, Serialize)]
 pub struct Section {
     pub name: String,
+    /// The source line, 1-based; for an editor, never serialised.
+    #[serde(skip)]
+    pub line: usize,
     pub from_bar: f64,
     pub to_bar: f64,
 }

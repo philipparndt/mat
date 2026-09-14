@@ -38,6 +38,8 @@ pub struct Analysis {
     pub lines: Vec<Line>,
     pub song: Option<Song>,
     pub diagnostics: Vec<mat_core::Diagnostic>,
+    /// Whether `song` is this text's, rather than the last one that parsed.
+    pub parsed: bool,
 }
 
 impl Analysis {
@@ -62,7 +64,8 @@ impl Analysis {
                 diagnostics.extend(errors);
             }
         }
-        Analysis { text: text.to_string(), lines, song: song.or(previous), diagnostics }
+        let parsed = song.is_some();
+        Analysis { text: text.to_string(), lines, song: song.or(previous), diagnostics, parsed }
     }
 
     fn line_text(&self, line: usize) -> &str {
@@ -487,6 +490,33 @@ pub fn symbols(analysis: &Analysis) -> Vec<DocumentSymbol> {
     out
 }
 
+// MARK: - Where lines are heard
+
+/// The notification an editor is sent after each analysis that parsed: for
+/// every line heard somewhere, the stretches of the song where, in seconds.
+pub const TIMELINE: &str = "mat/timeline";
+
+/// `mat/timeline`'s parameters, or nil when this text did not parse — lines
+/// placed from the last song that did would be drawn beside lines that have
+/// since moved.
+pub fn timeline(analysis: &Analysis, uri: &Url) -> Option<serde_json::Value> {
+    if !analysis.parsed {
+        return None;
+    }
+    let placements = mat_core::placement::placements(analysis.song.as_ref()?);
+    let lines: Vec<serde_json::Value> = placements
+        .lines
+        .iter()
+        .map(|l| serde_json::json!({ "line": l.line.saturating_sub(1), "spans": l.spans.iter().map(|s| [s.0, s.1]).collect::<Vec<_>>() }))
+        .collect();
+    Some(serde_json::json!({
+        "uri": uri,
+        "seconds": placements.seconds,
+        "barSeconds": placements.bar_seconds,
+        "lines": lines,
+    }))
+}
+
 // MARK: - The server
 
 /// Serves over stdin and stdout until the client says shutdown.
@@ -498,6 +528,9 @@ pub fn run_stdio() -> Result<(), Box<dyn Error + Sync + Send>> {
         hover_provider: Some(HoverProviderCapability::Simple(true)),
         definition_provider: Some(OneOf::Left(true)),
         document_symbol_provider: Some(OneOf::Left(true)),
+        // Says the server sends `mat/timeline`, so an editor that draws it knows
+        // to wait for one.
+        experimental: Some(serde_json::json!({ "timeline": true })),
         ..Default::default()
     };
     let init = connection.initialize(serde_json::to_value(capabilities)?)?;
@@ -518,8 +551,12 @@ pub fn run_stdio() -> Result<(), Box<dyn Error + Sync + Send>> {
                     let previous = documents.remove(&url).and_then(|a| a.song);
                     let analysis = Analysis::of(&text, previous);
                     let params = PublishDiagnosticsParams { uri: url.clone(), diagnostics: diagnostics(&analysis), version: None };
+                    let placed = timeline(&analysis, &url);
                     documents.insert(url, analysis);
                     connection.sender.send(Message::Notification(Notification::new(PublishDiagnostics::METHOD.into(), params)))?;
+                    if let Some(placed) = placed {
+                        connection.sender.send(Message::Notification(Notification::new(TIMELINE.into(), placed)))?;
+                    }
                 } else if notification.method == DidCloseTextDocument::METHOD {
                     if let Ok(params) = serde_json::from_value::<lsp_types::DidCloseTextDocumentParams>(notification.params) {
                         documents.remove(&params.text_document.uri);
@@ -755,6 +792,20 @@ master
         let broken = Analysis::of(&SONG.replace("track melody", "trak melody"), good.song.clone());
         assert!(!broken.diagnostics.is_empty());
         assert_eq!(broken.pattern_names(), ["beat", "verse"]);
+    }
+
+    /// Lines are 0-based on the wire; a text that does not parse sends none.
+    #[test]
+    fn the_timeline_places_lines_and_is_withheld_when_the_text_does_not_parse() {
+        let url = Url::parse("file:///tmp/test.song").unwrap();
+        let a = analysis();
+        let placed = timeline(&a, &url).expect("the song parses");
+        let lines = placed["lines"].as_array().unwrap();
+        // `  play verse x2` is line 19 (0-based): the verse is one bar, twice.
+        let play = lines.iter().find(|l| l["line"] == 19).expect("the play line is placed");
+        assert_eq!(play["spans"][0][1].as_f64().unwrap() - play["spans"][0][0].as_f64().unwrap(), 4.0);
+        let broken = Analysis::of(&SONG.replace("track melody", "trak melody"), a.song.clone());
+        assert!(timeline(&broken, &url).is_none());
     }
 
     #[test]
