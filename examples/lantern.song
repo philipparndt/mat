@@ -1,0 +1,279 @@
+# Lantern — progressive trance study built from what a reference recording
+# taught us: a bright pluck of sixteen detuned saws whose filter and decay open
+# over the build, its low notes kept mono on their own track, thin sine notes
+# held under the last bars before a drop, a long clean kick tuned to the key
+# with a noise click on top, and a short bass on the last 16th of every beat.
+# Original. A minor, 136 BPM, Am | F | C | G.
+#
+# Built-in synths only. Needs `sweep decay` / `sweep release` on synth tracks.
+# Layers (stems): arp, hold, kick, bass (sine bass and rolling growl), hats, fx
+
+title "Lantern"
+tempo 136
+meter 4/4
+
+section intro   bars=1-8
+section build   bars=9-16
+section drop    bars=17-32
+section break   bars=33-40
+section build2  bars=41-48
+section drop2   bars=49-64
+section outro   bars=65-72
+
+# ------------------------------------------------------------ instruments
+
+# Bright detuned-saw pluck: sixteen unison saws with a little noise. Everything
+# below 300 Hz is cut here and played by `low` instead, so the lows stay mono.
+instrument pluck synth
+  osc saw voices=16 spread=50 width=1
+  noise 0.12
+  drift 8
+  amp attack=2ms decay=0.12 sustain=0 release=0.12
+  fenv attack=1ms decay=0.1 sustain=0 release=0.05
+  filter lowpass cutoff=1500 env=1.2 keytrack=0.3
+  filter highpass cutoff=300
+
+# The same notes below 450 Hz: one plain saw, mono.
+instrument low synth
+  osc saw
+  amp attack=2ms decay=0.2 sustain=0 release=0.03
+  filter lowpass cutoff=450
+
+# Held notes before the drops and under the break: a thin sine, its octave on top.
+instrument hold synth
+  osc sine level=0.3
+  osc sine octave=1
+  amp attack=60ms decay=1 sustain=1 release=0.08
+
+# Long tuned kick: a clean sine falling onto the root, held for an 8th.
+instrument kick synth
+  osc sine
+  penv depth=24 decay=0.3
+  amp attack=2ms decay=1 sustain=1 release=0.2
+  filter lowpass cutoff=3000
+
+# The click on top of the kick: a very short burst of noise.
+instrument click synth
+  noise 1
+  amp attack=0 decay=0.06 sustain=0 release=0.005
+  filter highpass cutoff=300
+  filter lowpass cutoff=6000
+
+# Short bass on the last 16th of each beat, in the gap the kick leaves.
+instrument bass synth
+  osc sine
+  osc square level=0.15
+  amp attack=15ms decay=0.2 sustain=0.7 release=0.03
+  filter lowpass cutoff=400
+
+# Rolling mid bass on the 3rd and 4th 16th of each beat, an octave above the
+# sine bass: a driven, filtered saw that plucks shut before the next kick.
+instrument growl synth
+  osc saw voices=2 spread=8
+  osc square octave=-1 level=0.4
+  amp attack=2ms decay=0.12 sustain=0.2 release=0.04
+  fenv attack=1ms decay=0.08 sustain=0 release=0.05
+  filter lowpass cutoff=500 res=0.25 env=2.5 keytrack=0.5 drive=0.4
+  filter highpass cutoff=110
+
+# Offbeat noise hat for the second drop.
+instrument hat synth
+  noise 1
+  amp attack=0 decay=0.04 sustain=0 release=0.01
+  filter highpass cutoff=7000
+
+instrument riser preset riser
+
+# ------------------------------------------------------------ patterns
+
+# Roots pulse low while a two-note figure answers on top; bar 4 climbs back
+# into the loop.
+pattern seq
+  A2:s A2 A3 E3 A3 A2 C5 B4 A2 A3 A2 E4 A3 A2 E5 D5 |
+  F2 F2 F3 C3 F3 F2 C5 A4 F2 F3 F2 C4 F3 F2 E5 C5 |
+  C3 C3 C4 G3 C4 C3 E5 D5 C3 C4 C3 G4 C4 C3 G5 E5 |
+  G2 G2 G3 D3 G3 G2 D5 B4 G2 G3 G2 D4 B4 C5 D5 E5 |
+
+# Second drop: the top figure moves up a step each bar.
+pattern seqB
+  A2:s A2 A3 E3 A3 A2 E5 C5 A2 A3 A2 E4 A3 A2 G5 E5 |
+  F2 F2 F3 C3 F3 F2 F5 C5 F2 F3 F2 C4 F3 F2 A5 F5 |
+  C3 C3 C4 G3 C4 C3 G5 E5 C3 C4 C3 G4 C4 C3 C6 G5 |
+  G2 G2 G3 D3 G3 G2 B5 G5 G2 G3 G2 D4 B4 D5 G5 B5 |
+
+# Before a drop: a soft root on beat 1, then held.
+pattern holdin
+  C3:q@45 r:q C3:h@127 | G2:w |
+
+pattern holdbreak
+  A2:w@80 | F2:w@80 | C3:w@80 | G2:w@80 |
+
+pattern kick
+  A1:e r A1 r A1 r A1 r |
+
+pattern kickend
+  A1:e r A1 r r:h |
+
+pattern bassline
+  r:s r r A1:t r:t r:s r r A1:t r:t r:s r r A1:t r:t r:s r r A1:t r:t |
+  r:s r r F2:t r:t r:s r r F2:t r:t r:s r r F2:t r:t r:s r r F2:t r:t |
+  r:s r r C2:t r:t r:s r r C2:t r:t r:s r r C2:t r:t r:s r r C2:t r:t |
+  r:s r r G1:t r:t r:s r r G1:t r:t r:s r r G1:t r:t r:s r r G1:t r:t |
+
+pattern rolling
+  r:s r A2 A2 r r A2 A2 r r A2 A2 r r A2 A2 |
+  r:s r F2 F2 r r F2 F2 r r F2 F2 r r F2 F2 |
+  r:s r C3 C3 r r C3 C3 r r C3 C3 r r C3 C3 |
+  r:s r G2 G2 r r G2 G2 r r G2 G2 r r G3 G2 |
+
+# Second drop: the last 16th of every other beat jumps up an octave.
+pattern rollingB
+  r:s r A2 A2 r r A2 A3 r r A2 A2 r r A2 A3 |
+  r:s r F2 F2 r r F2 F3 r r F2 F2 r r F2 F3 |
+  r:s r C3 C3 r r C3 C4 r r C3 C3 r r C3 C4 |
+  r:s r G2 G2 r r G2 G3 r r G2 G2 r r G3 A3 |
+
+pattern hats
+  r:e A5 r A5 r A5 r A5 |
+
+pattern rise
+  A3:w+w+w+w+w+w+w+w
+
+# ------------------------------------------------------------ tracks
+
+track arp
+  instrument pluck
+  layer arp
+  eq lowcut=300 highcut=16k high=+9 highfreq=2k mid=-2 midfreq=700
+  chorus mix=0.6 rate=0.8 depth=4ms
+  sidechain kick depth=0.7 attack=2ms release=0.25
+  reverb 0.06
+  # Filter: closed intro, opens over the build, dips in the break.
+  sweep cutoff from=900 to=3000 bars=1-8
+  sweep cutoff from=3000 to=12500 bars=9-16
+  sweep cutoff from=12500 to=2500 bars=33-36
+  sweep cutoff from=2500 to=6000 bars=37-40
+  sweep cutoff from=6000 to=12500 bars=41-48
+  sweep cutoff from=12500 to=800 bars=65-72
+  # Decay: the pluck rings longer and longer into each drop.
+  sweep decay from=0.12 to=0.22 bars=9-12
+  sweep decay from=0.22 to=0.4 bars=13-14
+  sweep decay from=0.4 to=0.8 bars=15-16
+  sweep decay from=0.3 to=0.3 bars=17-17
+  sweep decay from=0.6 to=1.2 bars=33-40
+  sweep decay from=0.25 to=0.3 bars=41-44
+  sweep decay from=0.3 to=0.8 bars=45-48
+  sweep decay from=0.35 to=0.35 bars=49-49
+  sweep decay from=0.35 to=0.15 bars=65-72
+  sweep release from=0.12 to=0.22 bars=9-12
+  sweep release from=0.22 to=0.4 bars=13-14
+  sweep release from=0.4 to=0.8 bars=15-16
+  sweep release from=0.3 to=0.3 bars=17-17
+  sweep release from=0.6 to=1.2 bars=33-40
+  sweep release from=0.25 to=0.3 bars=41-44
+  sweep release from=0.3 to=0.8 bars=45-48
+  sweep release from=0.35 to=0.35 bars=49-49
+  sweep release from=0.35 to=0.15 bars=65-72
+  # Level: longer notes carry more energy, so the gain comes down as they open.
+  sweep gain from=4 to=2 bars=1-8
+  sweep gain from=6 to=2 bars=9-16
+  sweep gain from=5 to=5 bars=17-17
+  sweep gain from=1 to=0 bars=33-40
+  sweep gain from=0 to=5 bars=41-41
+  sweep gain from=5 to=2 bars=42-48
+  sweep gain from=5 to=5 bars=49-49
+  sweep gain from=5 to=-14 bars=65-72
+  play seq x12
+  play seqB x4
+  play seq x2
+
+track arplow
+  instrument low
+  layer arp
+  eq lowcut=150
+  sweep gain from=2 to=2 bars=1-1
+  sweep gain from=4 to=1 bars=9-16
+  sweep gain from=1 to=1 bars=17-17
+  sweep gain from=-2 to=-2 bars=33-40
+  sweep gain from=-2 to=3 bars=41-41
+  sweep gain from=3 to=0 bars=42-48
+  sweep gain from=1 to=1 bars=49-49
+  sweep gain from=1 to=-18 bars=65-72
+  play seq x12
+  play seqB x4
+  play seq x2
+
+track hold
+  instrument hold
+  gain -21
+  at 15
+  play holdin
+  at 33
+  play holdbreak x2
+  at 47
+  play holdin
+
+track kick
+  instrument kick
+  gain 4
+  at 17
+  play kick x15
+  play kickend
+  at 49
+  play kick x19
+  play kickend
+
+track click
+  instrument click
+  layer kick
+  gain 16
+  at 17
+  play kick x15
+  play kickend
+  at 49
+  play kick x19
+  play kickend
+
+track bass
+  instrument bass
+  gain -1
+  at 17
+  play bassline x4
+  at 49
+  play bassline x5
+
+track growl
+  instrument growl
+  layer bass
+  gain 8
+  eq lowcut=100
+  sidechain kick depth=0.6 attack=2ms release=0.15
+  sweep cutoff from=400 to=700 bars=17-32
+  sweep cutoff from=450 to=1000 bars=49-64
+  sweep cutoff from=1000 to=350 bars=65-68
+  at 17
+  play rolling x4
+  at 49
+  play rollingB x4
+  play rolling
+
+track hats
+  instrument hat
+  gain -14
+  pan 0.15
+  at 49
+  play hats x16
+
+track riser
+  instrument riser
+  layer fx
+  gain -10
+  sweep cutoff from=400 to=9000 bars=41-48
+  sweep gain from=-24 to=0 bars=41-48
+  at 41
+  play rise
+
+master
+  reverb size=0.4 decay=0.3 damping=0.3 predelay=5ms lowcut=350
+  width 1.25
+  limiter ceiling=-1

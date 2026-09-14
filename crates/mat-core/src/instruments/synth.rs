@@ -72,7 +72,15 @@ pub fn render_note_from(def: &SynthDef, note: &TimedNote, glide_from: Option<f32
     let mut rng = Rng::new(seed);
     let offset = (note.start * sample_rate as f64).round() as usize;
     let note_off = ((note.duration * sample_rate as f64).round() as usize).max(1);
-    let max_len = note_off + ((def.amp.release * 3.0 + 0.05) * sample_rate) as usize;
+    // Amp decay and release sweeps take their value at the start of the note.
+    let mut amp = def.amp;
+    if let Some(v) = sweep_value(sweeps, "decay", note.start) {
+        amp.decay = v.max(0.001);
+    }
+    if let Some(v) = sweep_value(sweeps, "release", note.start) {
+        amp.release = v.max(0.005);
+    }
+    let max_len = note_off + ((amp.release * 3.0 + 0.05) * sample_rate) as usize;
 
     let mut voices = Vec::new();
     let drift = if def.drift_cents > 0.0 { rng.bipolar() * def.drift_cents } else { 0.0 };
@@ -124,7 +132,7 @@ pub fn render_note_from(def: &SynthDef, note: &TimedNote, glide_from: Option<f32
         }
     }
 
-    let mut amp_env = Envelope::new(&def.amp, sample_rate);
+    let mut amp_env = Envelope::new(&amp, sample_rate);
     let mut filter_env = Envelope::new(&def.filter_env, sample_rate);
     // One stage per filter: key-tracked base cutoff, envelope depth, drive, and a stereo pair of SVFs.
     struct Stage {

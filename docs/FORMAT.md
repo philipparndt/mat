@@ -293,6 +293,7 @@ note sounds the same however the rest of the song is edited, and changing a
 ```
   sweep cutoff from=0.2 to=0.7 bars=9-16     # tb303 knobs: cutoff, resonance, envmod, decay, accent, drive
   sweep cutoff from=300 to=6000 bars=25-32   # synth: cutoff in Hz (moves logarithmically), res 0..1
+  sweep decay from=0.2 to=1.5 bars=5-12      # synth: amp decay and release in seconds, taken at the start of each note
   sweep gain from=-14 to=0 bars=25-32        # any track: a volume curve in dB (swells, fades)
 ```
 

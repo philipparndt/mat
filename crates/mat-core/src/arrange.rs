@@ -244,7 +244,7 @@ pub fn arrange(song: &Song) -> Result<Timeline, Vec<Diagnostic>> {
 
         let Some((instrument_name, kind)) = instrument else { continue };
         for s in &track.sweeps {
-            const SYNTH_PARAMS: [&str; 2] = ["cutoff", "res"];
+            const SYNTH_PARAMS: [&str; 4] = ["cutoff", "res", "decay", "release"];
             let (valid, names): (bool, &[&str]) = match &kind {
                 _ if s.param == "gain" => (true, &[]),
                 InstrumentKind::Tb303(_) => (Tb303Param::from_name(&s.param).is_some(), &Tb303Param::NAMES),
@@ -253,7 +253,7 @@ pub fn arrange(song: &Song) -> Result<Timeline, Vec<Diagnostic>> {
             };
             if !valid {
                 let d = if names.is_empty() {
-                    Diagnostic::error(s.span, "only 'gain' can be swept on this track (synth: cutoff, res; tb303: its knobs)")
+                    Diagnostic::error(s.span, "only 'gain' can be swept on this track (synth: cutoff, res, decay, release; tb303: its knobs)")
                 } else {
                     Diagnostic::error(s.span, format!("{} has no sweepable parameter '{}'", kind_label(&kind), s.param))
                         .with_hint(did_you_mean(&s.param, names.iter().copied()).unwrap_or_else(|| format!("sweepable: {}", names.join(", "))))
