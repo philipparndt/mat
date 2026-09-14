@@ -4,6 +4,7 @@
 use std::f32::consts::TAU;
 
 use super::filter::OnePole;
+use super::quiet::{BLOCK, QUIET, is_silent};
 use crate::model::ReverbSettings;
 
 const REF_RATE: f32 = 29761.0;
@@ -32,6 +33,14 @@ impl DelayLine {
         let a = self.tap(d.max(1));
         let b = self.tap(d + 1);
         a + (b - a) * frac
+    }
+
+    fn peak(&self) -> f32 {
+        self.buf.iter().fold(0.0, |m, s| m.max(s.abs()))
+    }
+
+    fn clear(&mut self) {
+        self.buf.fill(0.0);
     }
 
     #[inline]
@@ -85,6 +94,8 @@ pub struct PlateReverb {
     wet_lowcut: Option<[OnePole; 2]>,
     wet_highcut: Option<[OnePole; 2]>,
     shimmer_feed: f32,
+    /// Every line and filter is exactly zero; see `dsp::quiet`.
+    quiet: bool,
 }
 
 /// Simple octave-up pitch shifter: two grains read a circular buffer at
@@ -163,70 +174,138 @@ impl PlateReverb {
             wet_lowcut: (settings.lowcut_hz > 0.0).then(|| [OnePole::new(settings.lowcut_hz, sample_rate), OnePole::new(settings.lowcut_hz, sample_rate)]),
             wet_highcut: (settings.highcut_hz > 0.0).then(|| [OnePole::new(settings.highcut_hz, sample_rate), OnePole::new(settings.highcut_hz, sample_rate)]),
             shimmer_feed: 0.0,
+            quiet: true,
         }
     }
 
     /// Processes a buffer. Input is summed to mono, output is stereo wet signal.
     pub fn process(&mut self, in_l: &[f32], in_r: &[f32], out_l: &mut [f32], out_r: &mut [f32]) {
+        let n = out_l.len();
+        let mut start = 0;
+        while start < n {
+            let end = (start + BLOCK).min(n);
+            let silent_in = is_silent(in_l, in_r, start, end);
+            if self.quiet && silent_in {
+                let steps = (end - start) as f32;
+                self.lfo_phase = (self.lfo_phase + self.lfo_step * steps) % 1.0;
+                let grain = self.shifter.grain as f32;
+                self.shifter.read = (self.shifter.read + steps) % grain;
+                out_l[start..end].fill(0.0);
+                out_r[start..end].fill(0.0);
+                start = end;
+                continue;
+            }
+            self.quiet = false;
+            let mut peak = 0.0f32;
+            for i in start..end {
+                let x = 0.5 * (in_l.get(i).copied().unwrap_or(0.0) + in_r.get(i).copied().unwrap_or(0.0));
+                let (l, r) = self.step(x);
+                out_l[i] = l;
+                out_r[i] = r;
+                peak = peak.max(l.abs()).max(r.abs());
+            }
+            if silent_in && peak < QUIET && self.state_peak() < QUIET {
+                self.clear();
+            }
+            start = end;
+        }
+    }
+
+    #[inline]
+    fn step(&mut self, x: f32) -> (f32, f32) {
         let decay_diffusion2 = (self.decay + 0.15).clamp(0.25, 0.5);
         let t = |n: f32, sc: f32| (n * sc) as usize;
         let sc = self.scale;
-        for i in 0..out_l.len() {
-            let x = 0.5 * (in_l.get(i).copied().unwrap_or(0.0) + in_r.get(i).copied().unwrap_or(0.0)) + self.shimmer_feed;
-            let x = self.input_hp.highpass(x);
-            let x = if self.predelay_samples > 0 {
-                let d = self.predelay.tap(self.predelay_samples);
-                self.predelay.write(x);
-                d
-            } else {
-                x
-            };
-            let mut x = self.bandwidth.lowpass(x);
-            x = self.diffusers[0].process(x, 0.75, 0.0);
-            x = self.diffusers[1].process(x, 0.75, 0.0);
-            x = self.diffusers[2].process(x, 0.625, 0.0);
-            x = self.diffusers[3].process(x, 0.625, 0.0);
+        let x = x + self.shimmer_feed;
+        let x = self.input_hp.highpass(x);
+        let x = if self.predelay_samples > 0 {
+            let d = self.predelay.tap(self.predelay_samples);
+            self.predelay.write(x);
+            d
+        } else {
+            x
+        };
+        let mut x = self.bandwidth.lowpass(x);
+        x = self.diffusers[0].process(x, 0.75, 0.0);
+        x = self.diffusers[1].process(x, 0.75, 0.0);
+        x = self.diffusers[2].process(x, 0.625, 0.0);
+        x = self.diffusers[3].process(x, 0.625, 0.0);
 
-            self.lfo_phase = (self.lfo_phase + self.lfo_step) % 1.0;
-            let lfo = [(self.lfo_phase * TAU).sin(), (self.lfo_phase * TAU).cos()];
+        self.lfo_phase = (self.lfo_phase + self.lfo_step) % 1.0;
+        let lfo = [(self.lfo_phase * TAU).sin(), (self.lfo_phase * TAU).cos()];
 
-            let feedback = [self.delay_b[1].tap(self.len_b[1]), self.delay_b[0].tap(self.len_b[0])];
-            for side in 0..2 {
-                let mut v = x + feedback[side] * self.decay;
-                v = self.ap_mod[side].process(v, -0.7, lfo[side] * self.excursion);
-                let delayed = self.delay_a[side].tap(self.len_a[side]);
-                self.delay_a[side].write(v);
-                self.damp[side] = delayed * (1.0 - self.damping) + self.damp[side] * self.damping;
-                let mut w = self.damp[side] * self.decay;
-                w = self.ap[side].process(w, decay_diffusion2, 0.0);
-                self.delay_b[side].write(w);
-            }
-
-            let (da, db) = (&self.delay_a, &self.delay_b);
-            let (apl, apr) = (&self.ap[0].line, &self.ap[1].line);
-            let l = da[1].tap(t(266.0, sc)) + da[1].tap(t(2974.0, sc)) - apr.tap(t(1913.0, sc)) + db[1].tap(t(1996.0, sc))
-                - da[0].tap(t(1990.0, sc))
-                - apl.tap(t(187.0, sc))
-                - db[0].tap(t(1066.0, sc));
-            let r = da[0].tap(t(353.0, sc)) + da[0].tap(t(3627.0, sc)) - apl.tap(t(1228.0, sc)) + db[0].tap(t(2673.0, sc))
-                - da[1].tap(t(2111.0, sc))
-                - apr.tap(t(335.0, sc))
-                - db[1].tap(t(121.0, sc));
-            let (mut l, mut r) = (l * 0.6, r * 0.6);
-            if let Some(f) = &mut self.wet_lowcut {
-                l = f[0].highpass(l);
-                r = f[1].highpass(r);
-            }
-            if let Some(f) = &mut self.wet_highcut {
-                l = f[0].lowpass(l);
-                r = f[1].lowpass(r);
-            }
-            if self.shimmer > 0.0 {
-                // An octave-up copy of the tail feeds back into the input.
-                self.shimmer_feed = self.shifter.process(0.5 * (l + r)) * self.shimmer * 0.5;
-            }
-            out_l[i] = l;
-            out_r[i] = r;
+        let feedback = [self.delay_b[1].tap(self.len_b[1]), self.delay_b[0].tap(self.len_b[0])];
+        for side in 0..2 {
+            let mut v = x + feedback[side] * self.decay;
+            v = self.ap_mod[side].process(v, -0.7, lfo[side] * self.excursion);
+            let delayed = self.delay_a[side].tap(self.len_a[side]);
+            self.delay_a[side].write(v);
+            self.damp[side] = delayed * (1.0 - self.damping) + self.damp[side] * self.damping;
+            let mut w = self.damp[side] * self.decay;
+            w = self.ap[side].process(w, decay_diffusion2, 0.0);
+            self.delay_b[side].write(w);
         }
+
+        let (da, db) = (&self.delay_a, &self.delay_b);
+        let (apl, apr) = (&self.ap[0].line, &self.ap[1].line);
+        let l = da[1].tap(t(266.0, sc)) + da[1].tap(t(2974.0, sc)) - apr.tap(t(1913.0, sc)) + db[1].tap(t(1996.0, sc))
+            - da[0].tap(t(1990.0, sc))
+            - apl.tap(t(187.0, sc))
+            - db[0].tap(t(1066.0, sc));
+        let r = da[0].tap(t(353.0, sc)) + da[0].tap(t(3627.0, sc)) - apl.tap(t(1228.0, sc)) + db[0].tap(t(2673.0, sc))
+            - da[1].tap(t(2111.0, sc))
+            - apr.tap(t(335.0, sc))
+            - db[1].tap(t(121.0, sc));
+        let (mut l, mut r) = (l * 0.6, r * 0.6);
+        if let Some(f) = &mut self.wet_lowcut {
+            l = f[0].highpass(l);
+            r = f[1].highpass(r);
+        }
+        if let Some(f) = &mut self.wet_highcut {
+            l = f[0].lowpass(l);
+            r = f[1].lowpass(r);
+        }
+        if self.shimmer > 0.0 {
+            // An octave-up copy of the tail feeds back into the input.
+            self.shimmer_feed = self.shifter.process(0.5 * (l + r)) * self.shimmer * 0.5;
+        }
+        (l, r)
+    }
+
+    fn state_peak(&self) -> f32 {
+        let lines = [&self.predelay]
+            .into_iter()
+            .chain(self.diffusers.iter().map(|a| &a.line))
+            .chain(self.ap_mod.iter().map(|a| &a.line))
+            .chain(self.ap.iter().map(|a| &a.line))
+            .chain(self.delay_a.iter())
+            .chain(self.delay_b.iter())
+            .map(DelayLine::peak);
+        let filters = [self.input_hp.state(), self.bandwidth.state()]
+            .into_iter()
+            .chain(self.wet_lowcut.iter().flatten().map(OnePole::state))
+            .chain(self.wet_highcut.iter().flatten().map(OnePole::state))
+            .chain(self.damp)
+            .chain([self.shimmer_feed])
+            .map(f32::abs);
+        let shifter = self.shifter.buf.iter().map(|s| s.abs());
+        lines.chain(filters).chain(shifter).fold(0.0, f32::max)
+    }
+
+    fn clear(&mut self) {
+        self.predelay.clear();
+        self.diffusers.iter_mut().for_each(|a| a.line.clear());
+        self.ap_mod.iter_mut().for_each(|a| a.line.clear());
+        self.ap.iter_mut().for_each(|a| a.line.clear());
+        self.delay_a.iter_mut().for_each(DelayLine::clear);
+        self.delay_b.iter_mut().for_each(DelayLine::clear);
+        self.input_hp.reset();
+        self.bandwidth.reset();
+        self.wet_lowcut.iter_mut().flatten().for_each(OnePole::reset);
+        self.wet_highcut.iter_mut().flatten().for_each(OnePole::reset);
+        self.damp = [0.0; 2];
+        self.shimmer_feed = 0.0;
+        self.shifter.buf.fill(0.0);
+        self.quiet = true;
     }
 }

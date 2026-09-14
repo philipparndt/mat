@@ -4,6 +4,7 @@
 pub mod arrange;
 pub mod clap_host;
 pub mod diag;
+pub mod hash;
 pub mod dsp;
 pub mod import;
 pub mod instruments;
@@ -15,6 +16,7 @@ pub mod model;
 pub mod parser;
 pub mod presets;
 pub mod render;
+pub mod render_cache;
 pub mod sampler;
 pub mod wav;
 

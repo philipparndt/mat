@@ -265,7 +265,20 @@ swing 0.58                 # top level: every track; 0.5 = straight, 0.66 = trip
   humanize time=8ms vel=10 # random timing (± time) and velocity (± vel of 127) per note
 ```
 
-Humanize is deterministic per track, so a render always sounds the same.
+Humanize is deterministic per note, so a render always sounds the same.
+
+### Takes
+
+```
+seed 7                     # top level: which take of everything random the song gets
+  seed 3                   # on a track: this track's take instead
+```
+
+Everything random in a note — oscillator drift, unison spread, LFO phases,
+drum noise, humanize — comes from the track's name, the `seed`, and the note
+itself: its time, its pitch, and which of several identical notes it is. So a
+note sounds the same however the rest of the song is edited, and changing a
+`seed` is how to hear another take. Renaming a track changes its take.
 
 ### Track effects
 
@@ -344,3 +357,22 @@ sum to it sample for sample, except that the master's saturation, compressor,
 clipper and limiter are not applied to a layer (they are not linear, so they
 cannot be split). `manifest.json` says so under `mixing`, and carries the
 `master` settings so a player can apply its own limiter to the sum.
+
+## Rendering while editing
+
+```sh
+mat render song.song --stems out/ --cache .mat-cache/   # keep each layer between renders
+```
+
+With `--cache`, each layer is kept under a hash of everything that shapes it:
+its tracks and their notes, the tracks keying the master sidechain, the
+master's delay, reverb, sidechain, gain, EQ and width, the sample rate, and the
+size and date of every file those read. Rendering again renders only the
+layers whose hash changed and reads the rest back, and a stem already written
+for a layer is hard-linked into `out/` instead of written again. An edit to one
+pattern of a four-minute, ten-layer song renders in about a second instead of
+about five. A cached render is the same samples as an uncached one.
+
+Each layer's `key` and whether it was `cached` are in `manifest.json`. A cache
+file no render has used for 30 minutes is deleted by the next render. The cache
+is large: a four-minute song of ten layers holds about a gigabyte and a half.

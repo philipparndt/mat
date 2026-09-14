@@ -70,4 +70,13 @@ impl OnePole {
     pub fn highpass(&mut self, x: f32) -> f32 {
         x - self.lowpass(x)
     }
+
+    /// What the filter still holds, for deciding that an effect has gone quiet.
+    pub fn state(&self) -> f32 {
+        self.state
+    }
+
+    pub fn reset(&mut self) {
+        self.state = 0.0;
+    }
 }

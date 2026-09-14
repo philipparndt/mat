@@ -590,6 +590,8 @@ pub struct Track {
     /// Grid the swing acts on, in whole notes (default 1/16).
     pub swing_grid: Option<Whole>,
     pub humanize: Option<Humanize>,
+    /// `seed <n>` on a track: this track's take, instead of the song's.
+    pub seed: Option<u64>,
     pub comp: Option<CompSettings>,
     pub phaser: Option<PhaserSettings>,
     /// Stem group for `mat render --stems`; defaults to the track name.
@@ -717,6 +719,9 @@ pub struct Song {
     /// Song-wide swing (0.5 = straight) and its grid.
     pub swing: f32,
     pub swing_grid: Whole,
+    /// `seed <n>` at the top: which take of every random thing the song gets —
+    /// drift, unison spread, LFO phases, humanize. 0 unless the song says.
+    pub seed: u64,
 }
 
 impl Song {

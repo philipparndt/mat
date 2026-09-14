@@ -42,6 +42,11 @@ enum Command {
         /// (tempo, bar length, sections) for game engines.
         #[arg(long)]
         stems: Option<PathBuf>,
+        /// Keep each layer here between renders, keyed by everything that
+        /// shapes it, so rendering again after an edit renders only the layers
+        /// the edit touched. For editors that render on every save.
+        #[arg(long)]
+        cache: Option<PathBuf>,
     },
     /// Render a song and play it on the default audio device.
     Play { song: PathBuf },
@@ -123,7 +128,7 @@ fn run(cli: Cli) -> anyhow::Result<ExitCode> {
             print_summary(&timeline);
             println!("ok");
         }
-        Command::Render { song, output, sample_rate, bits, r#loop, stems } => {
+        Command::Render { song, output, sample_rate, bits, r#loop, stems, cache } => {
             let Some(timeline) = load(&song)? else { return Ok(ExitCode::FAILURE) };
             let output = output.unwrap_or_else(|| song.with_extension("wav"));
             let depth = match bits {
@@ -134,7 +139,7 @@ fn run(cli: Cli) -> anyhow::Result<ExitCode> {
             let loop_seconds = r#loop.then(|| (timeline.end / timeline.bar_seconds - 1e-6).ceil() * timeline.bar_seconds);
             // One render, split into layers when stems are wanted: a stem is
             // the song's own take of its tracks, not a solo render of them.
-            let rendering = render_song(&timeline, sample_rate, stems.is_some());
+            let rendering = render_song(&timeline, sample_rate, stems.is_some(), cache.clone());
             let layers_peak_db = rendering.layers_peak_db;
             let mut audio = rendering.mix;
             if let Some(secs) = loop_seconds {
@@ -147,6 +152,8 @@ fn run(cli: Cli) -> anyhow::Result<ExitCode> {
             if let Some(dir) = stems {
                 std::fs::create_dir_all(&dir)?;
                 let mut written = Vec::new();
+                let layer_cache = cache.as_ref().map(|dir| mat_core::render_cache::LayerCache::open(dir.clone()));
+                let (mut linked, mut from_cache) = (0, 0);
                 for layer in rendering.layers {
                     // Already the mix's length: the layers are cut where the mix
                     // is, so they line up in the engine without padding.
@@ -155,10 +162,54 @@ fn run(cli: Cli) -> anyhow::Result<ExitCode> {
                         mat_core::render::fold_loop(&mut audio, secs);
                     }
                     let file = format!("{}.wav", layer.layer.replace(['/', ' '], "_"));
-                    write_wav(&dir.join(&file), &audio, depth)?;
-                    println!("  {file}: peak {:.1} dBFS", audio.peak_db());
+                    let target = dir.join(&file);
+                    from_cache += usize::from(layer.cached);
+                    // A stem this cache has already written for this layer, cut to
+                    // this length and written this way, is linked rather than
+                    // written again: ten stems of a four-minute song are most of a
+                    // gigabyte, and an edit changes one of them.
+                    let kept = match (&layer_cache, layer.key) {
+                        (Some(cache), Some(key)) => {
+                            let variant = format!("{}{}", bits_name(depth), if loop_seconds.is_some() { "-loop" } else { "" });
+                            Some((cache, cache.stem_path(key, audio.left.len(), &variant)))
+                        }
+                        _ => None,
+                    };
+                    match kept {
+                        Some((cache, stem)) => {
+                            if !stem.is_file() {
+                                // Under a temporary name first: a render killed
+                                // half-way must not leave a short stem under a
+                                // name the next render links without looking.
+                                let temporary = stem.with_extension(format!("{}.tmp", std::process::id()));
+                                write_wav(&temporary, &audio, depth)?;
+                                std::fs::rename(&temporary, &stem)?;
+                            } else {
+                                cache.touch(&stem);
+                            }
+                            let _ = std::fs::remove_file(&target);
+                            if std::fs::hard_link(&stem, &target).is_err() {
+                                std::fs::copy(&stem, &target)?;
+                            }
+                            linked += 1;
+                        }
+                        None => write_wav(&target, &audio, depth)?,
+                    }
+                    println!("  {file}: peak {:.1} dBFS{}", audio.peak_db(), if layer.cached { " (cached)" } else { "" });
                     let tracks: Vec<String> = timeline.tracks.iter().filter(|t| t.layer == layer.layer).map(|t| t.name.clone()).collect();
-                    written.push(serde_json::json!({ "layer": layer.layer, "file": file, "tracks": tracks }));
+                    written.push(serde_json::json!({
+                        "layer": layer.layer,
+                        "file": file,
+                        "tracks": tracks,
+                        // What the layer was keyed by: a player that reads the
+                        // stems again after a render can keep what it made of one
+                        // whose key has not changed.
+                        "key": layer.key.map(|k| format!("{k:016x}")),
+                        "cached": layer.cached,
+                    }));
+                }
+                if cache.is_some() {
+                    println!("layers: {from_cache} of {} from the cache, {linked} stems linked", written.len());
                 }
                 let manifest = serde_json::json!({
                     "title": timeline.title,
@@ -305,12 +356,20 @@ fn print_summary(t: &Timeline) {
 }
 
 fn render(timeline: &Timeline, sample_rate: u32) -> mat_core::Audio {
-    render_song(timeline, sample_rate, false).mix
+    render_song(timeline, sample_rate, false, None).mix
 }
 
 /// Renders the song, with its layers kept apart when `split`, and prints
 /// the render's summary line.
-fn render_song(timeline: &Timeline, sample_rate: u32, split: bool) -> mat_core::render::Rendering {
+fn bits_name(depth: BitDepth) -> &'static str {
+    match depth {
+        BitDepth::Int16 => "16",
+        BitDepth::Int24 => "24",
+        BitDepth::Float32 => "32f",
+    }
+}
+
+fn render_song(timeline: &Timeline, sample_rate: u32, split: bool, cache: Option<PathBuf>) -> mat_core::render::Rendering {
     let started = Instant::now();
     let stems = match render_audio_unit_stems(timeline, sample_rate) {
         Ok(stems) => stems,
@@ -319,7 +378,7 @@ fn render_song(timeline: &Timeline, sample_rate: u32, split: bool) -> mat_core::
             HashMap::new()
         }
     };
-    let rendering = mat_core::render::render_layers(timeline, sample_rate, stems, split);
+    let rendering = mat_core::render::render_with(timeline, sample_rate, stems, &mat_core::render::RenderOptions { split, cache });
     for warning in &rendering.report.warnings {
         eprintln!("warning: {warning}");
     }

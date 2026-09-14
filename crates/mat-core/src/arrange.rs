@@ -19,6 +19,14 @@ pub struct TimedNote {
     pub velocity: f32,
     pub accent: bool,
     pub slide: bool,
+    /// Where this note's randomness starts: drift, unison spread, LFO phase,
+    /// a drum's noise. A function of the track's seed and of the note itself —
+    /// its time, its pitch, and which of several identical ones it is — so a
+    /// note sounds the same however the rest of the song is edited. It used to
+    /// be the track's position in the file and the note's in the track, and
+    /// inserting either changed every take after it.
+    #[serde(default)]
+    pub seed: u64,
 }
 
 /// A resolved parameter sweep in seconds.
@@ -65,6 +73,10 @@ pub struct TimelineTrack {
     /// Rendered (e.g. as a scratch source) but not mixed; used by stem renders.
     #[serde(default)]
     pub silent: bool,
+    /// The track's take: its name, and the `seed` it or the song says. Every
+    /// note's seed starts from it.
+    #[serde(default)]
+    pub seed: u64,
     pub instrument_name: String,
     pub instrument: InstrumentKind,
     pub gain_db: f32,
@@ -190,6 +202,7 @@ pub fn arrange(song: &Song) -> Result<Timeline, Vec<Diagnostic>> {
                                 velocity: (ev.velocity * velocity).clamp(0.0, 1.0),
                                 accent: ev.accent,
                                 slide: ev.slide,
+                                seed: 0,
                             });
                         }
                         cursor += pat.length;
@@ -211,14 +224,22 @@ pub fn arrange(song: &Song) -> Result<Timeline, Vec<Diagnostic>> {
                 }
             }
         }
+        let track_seed = crate::hash::track_seed(&track.name, track.seed.unwrap_or(song.seed));
         if let Some(h) = track.humanize {
-            let mut rng = crate::dsp::Rng::new(0xC0FFEE ^ tracks.len() as u64 ^ (track.name.len() as u64) << 8);
+            // Per note, from the note: humanize used to be one generator run down
+            // the track, so a note added at bar 2 moved every note after it.
+            let mut identities = crate::hash::NoteIdentities::new(track_seed ^ crate::hash::HUMANIZE);
             for n in &mut notes {
+                let mut rng = crate::dsp::Rng::new(identities.next(n.start, n.midi));
                 n.start = (n.start + (rng.bipolar() * h.time) as f64).max(0.0);
                 n.velocity = (n.velocity + rng.bipolar() * h.velocity).clamp(0.05, 1.0);
             }
         }
         notes.sort_by(|a, b| a.start.total_cmp(&b.start));
+        let mut identities = crate::hash::NoteIdentities::new(track_seed);
+        for n in &mut notes {
+            n.seed = identities.next(n.start, n.midi);
+        }
         all_notes.push((track.name.as_str(), notes.clone()));
 
         let Some((instrument_name, kind)) = instrument else { continue };
@@ -250,6 +271,7 @@ pub fn arrange(song: &Song) -> Result<Timeline, Vec<Diagnostic>> {
             name: track.name.clone(),
             layer: track.layer.clone().unwrap_or_else(|| track.name.clone()),
             silent: false,
+            seed: track_seed,
             instrument_name,
             instrument: kind,
             gain_db: track.gain_db,

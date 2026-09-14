@@ -1,5 +1,6 @@
 //! Biquad filters (RBJ Audio EQ Cookbook) and a five-band track EQ.
 
+use crate::dsp::quiet::{BLOCK, QUIET};
 use std::f32::consts::{FRAC_1_SQRT_2, PI};
 
 use crate::model::EqSettings;
@@ -99,9 +100,30 @@ pub fn apply_eq(eq: &EqSettings, left: &mut [f32], right: &mut [f32], sr: f32) {
     }
     for channel in [left, right] {
         let mut filters = stages.clone();
-        for s in channel.iter_mut() {
-            for f in &mut filters {
-                *s = f.process(*s);
+        // Silence skipped, as in the send effects (see `dsp::quiet`): a zero
+        // block through filters whose state is below `QUIET` is left at zero
+        // and the state cleared. A master EQ runs once per stem over the whole
+        // song, and a stem is mostly rests — 250 ms a stem before this.
+        let mut quiet = true;
+        for block in channel.chunks_mut(BLOCK) {
+            let silent = block.iter().all(|s| *s == 0.0);
+            if quiet && silent {
+                continue;
+            }
+            quiet = false;
+            for s in block.iter_mut() {
+                for f in &mut filters {
+                    *s = f.process(*s);
+                }
+            }
+            let peak = block.iter().fold(0.0f32, |m, s| m.max(s.abs()));
+            if silent && peak < QUIET && filters.iter().all(|f| f.z1.abs() < QUIET && f.z2.abs() < QUIET) {
+                block.fill(0.0);
+                filters.iter_mut().for_each(|f| {
+                    f.z1 = 0.0;
+                    f.z2 = 0.0;
+                });
+                quiet = true;
             }
         }
     }

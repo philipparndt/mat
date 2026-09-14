@@ -1,6 +1,7 @@
 //! Tempo-synced stereo ping-pong delay with a darkening feedback path.
 
 use super::filter::OnePole;
+use super::quiet::{BLOCK, QUIET, is_silent};
 
 pub struct PingPongDelay {
     left: Vec<f32>,
@@ -13,6 +14,9 @@ pub struct PingPongDelay {
     mod_step: f32,
     mod_phase: f32,
     sample_rate: f32,
+    /// Every buffer and filter is exactly zero, so silent input is silent
+    /// output and only the modulation's phase has to move. See `dsp::quiet`.
+    quiet: bool,
 }
 
 impl PingPongDelay {
@@ -29,6 +33,7 @@ impl PingPongDelay {
             mod_step: 0.0,
             mod_phase: 0.0,
             sample_rate,
+            quiet: true,
         }
     }
 
@@ -56,23 +61,63 @@ impl PingPongDelay {
     }
 
     pub fn process(&mut self, in_l: &[f32], in_r: &[f32], out_l: &mut [f32], out_r: &mut [f32]) {
-        let base = if self.mod_depth > 0.0 { (self.left.len() as f32 - self.mod_depth - 2.0).max(1.0) } else { 0.0 };
-        for i in 0..out_l.len() {
-            let x = 0.5 * (in_l.get(i).copied().unwrap_or(0.0) + in_r.get(i).copied().unwrap_or(0.0));
-            let (dl, dr) = if self.mod_depth > 0.0 {
-                self.mod_phase = (self.mod_phase + self.mod_step) % 1.0;
-                let m = (self.mod_phase * std::f32::consts::TAU).sin() * self.mod_depth;
-                (Self::tap(&self.left, self.pos, base + m), Self::tap(&self.right, self.pos, base - m))
-            } else {
-                (self.left[self.pos], self.right[self.pos])
-            };
-            let fl = self.highpass[0].highpass(self.tone[0].lowpass(dr * self.feedback));
-            let fr = self.highpass[1].highpass(self.tone[1].lowpass(dl * self.feedback));
-            self.left[self.pos] = x + fl;
-            self.right[self.pos] = fr;
-            self.pos = (self.pos + 1) % self.left.len();
-            out_l[i] = dl;
-            out_r[i] = dr;
+        let n = out_l.len();
+        let mut start = 0;
+        while start < n {
+            let end = (start + BLOCK).min(n);
+            let silent_in = is_silent(in_l, in_r, start, end);
+            if self.quiet && silent_in {
+                if self.mod_depth > 0.0 {
+                    self.mod_phase = (self.mod_phase + self.mod_step * (end - start) as f32) % 1.0;
+                }
+                out_l[start..end].fill(0.0);
+                out_r[start..end].fill(0.0);
+                start = end;
+                continue;
+            }
+            self.quiet = false;
+            let mut peak = 0.0f32;
+            for i in start..end {
+                let x = 0.5 * (in_l.get(i).copied().unwrap_or(0.0) + in_r.get(i).copied().unwrap_or(0.0));
+                let (l, r) = self.step(x);
+                out_l[i] = l;
+                out_r[i] = r;
+                peak = peak.max(l.abs()).max(r.abs());
+            }
+            if silent_in && peak < QUIET && self.state_peak() < QUIET {
+                self.clear();
+            }
+            start = end;
         }
+    }
+
+    #[inline]
+    fn step(&mut self, x: f32) -> (f32, f32) {
+        let base = if self.mod_depth > 0.0 { (self.left.len() as f32 - self.mod_depth - 2.0).max(1.0) } else { 0.0 };
+        let (dl, dr) = if self.mod_depth > 0.0 {
+            self.mod_phase = (self.mod_phase + self.mod_step) % 1.0;
+            let m = (self.mod_phase * std::f32::consts::TAU).sin() * self.mod_depth;
+            (Self::tap(&self.left, self.pos, base + m), Self::tap(&self.right, self.pos, base - m))
+        } else {
+            (self.left[self.pos], self.right[self.pos])
+        };
+        let fl = self.highpass[0].highpass(self.tone[0].lowpass(dr * self.feedback));
+        let fr = self.highpass[1].highpass(self.tone[1].lowpass(dl * self.feedback));
+        self.left[self.pos] = x + fl;
+        self.right[self.pos] = fr;
+        self.pos = (self.pos + 1) % self.left.len();
+        (dl, dr)
+    }
+
+    fn state_peak(&self) -> f32 {
+        let filters = self.tone.iter().chain(&self.highpass).map(|f| f.state().abs());
+        self.left.iter().chain(&self.right).map(|s| s.abs()).chain(filters).fold(0.0, f32::max)
+    }
+
+    fn clear(&mut self) {
+        self.left.fill(0.0);
+        self.right.fill(0.0);
+        self.tone.iter_mut().chain(self.highpass.iter_mut()).for_each(OnePole::reset);
+        self.quiet = true;
     }
 }

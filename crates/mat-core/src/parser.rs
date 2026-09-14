@@ -7,7 +7,7 @@ use crate::lexer::{Line, Token, lex};
 use crate::presets;
 use crate::model::*;
 
-const TOP_LEVEL: &[&str] = &["title", "tempo", "meter", "swing", "section", "instrument", "pattern", "track", "master"];
+const TOP_LEVEL: &[&str] = &["title", "tempo", "meter", "swing", "seed", "section", "instrument", "pattern", "track", "master"];
 const EPS: f64 = 1e-9;
 
 struct Block<'a> {
@@ -88,13 +88,14 @@ pub fn parse(source: &str) -> (Option<Song>, Vec<Diagnostic>) {
             sections: Vec::new(),
             swing: 0.5,
             swing_grid: 1.0 / 16.0,
+            seed: 0,
         },
     };
 
     // Globals first: patterns need the meter for bar checks regardless of order.
     for block in &blocks {
         let kw = &block.header.tokens[0];
-        if matches!(kw.text.as_str(), "title" | "tempo" | "meter" | "swing") {
+        if matches!(kw.text.as_str(), "title" | "tempo" | "meter" | "swing" | "seed") {
             p.global(block);
         }
     }
@@ -103,7 +104,7 @@ pub fn parse(source: &str) -> (Option<Song>, Vec<Diagnostic>) {
     for block in &blocks {
         let kw = &block.header.tokens[0];
         match kw.text.as_str() {
-            "title" | "tempo" | "meter" | "swing" => {}
+            "title" | "tempo" | "meter" | "swing" | "seed" => {}
             "section" => p.section(block),
             "instrument" => p.instrument(block),
             "pattern" => p.pattern(block),
@@ -169,6 +170,13 @@ impl Parser {
             "title" => {
                 if let Some(t) = self.arg(line, 1, "title text") {
                     self.song.title = Some(t.text.clone());
+                }
+            }
+            "seed" => {
+                if let Some(t) = self.arg(line, 1, "seed number such as 7")
+                    && let Some(v) = self.number(t, 0.0, 4_294_967_295.0)
+                {
+                    self.song.seed = v as u64;
                 }
             }
             "tempo" => {
@@ -1103,6 +1111,7 @@ impl Parser {
             swing: None,
             swing_grid: None,
             humanize: None,
+            seed: None,
             comp: None,
             phaser: None,
             layer: None,
@@ -1144,6 +1153,14 @@ impl Parser {
                     self.extra_tokens(line, 2);
                 }
                 "mute" => track.mute = true,
+                "seed" => {
+                    if let Some(t) = self.arg(line, 1, "seed number such as 7")
+                        && let Some(v) = self.number(t, 0.0, 4_294_967_295.0)
+                    {
+                        track.seed = Some(v as u64);
+                    }
+                    self.extra_tokens(line, 2);
+                }
                 "swing" => {
                     if let Some(t) = self.arg(line, 1, "swing amount such as 0.58") {
                         let (amount, grid) = self.swing_args(line, t);
@@ -1302,7 +1319,7 @@ impl Parser {
                     kw,
                     other,
                     "tracks",
-                    &["instrument", "audio", "layer", "gain", "pan", "reverb", "delay", "eq", "comp", "chorus", "phaser", "sidechain", "sweep", "swing", "humanize", "mute", "play", "rest", "at"],
+                    &["instrument", "audio", "layer", "gain", "pan", "reverb", "delay", "eq", "comp", "chorus", "phaser", "sidechain", "sweep", "swing", "humanize", "seed", "mute", "play", "rest", "at"],
                 ),
             }
         }
