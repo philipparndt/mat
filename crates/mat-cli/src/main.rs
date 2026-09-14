@@ -10,7 +10,8 @@ use clap::{Parser, Subcommand, ValueEnum};
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use mat_core::dsp::StereoClip;
 use mat_core::model::InstrumentKind;
-use mat_core::wav::{BitDepth, write_wav};
+use mat_core::encode::{Encoding, Format, write_audio};
+use mat_core::wav::BitDepth;
 use mat_core::{Diagnostic, Severity, Timeline};
 
 #[derive(Parser)]
@@ -24,22 +25,28 @@ struct Cli {
 enum Command {
     /// Validate a song and print a summary.
     Check { song: PathBuf },
-    /// Render a song to a WAV file.
+    /// Render a song to a WAV, FLAC or M4A (AAC) file.
     Render {
         song: PathBuf,
-        /// Output file (defaults to the song name with .wav).
+        /// Output file; .wav, .flac (lossless) or .m4a (AAC, macOS) picks the
+        /// format. Defaults to the song name with .wav.
         #[arg(short, long)]
         output: Option<PathBuf>,
         #[arg(long, default_value_t = 48_000)]
         sample_rate: u32,
+        /// Sample depth of .wav and .flac files (FLAC takes 16 or 24).
         #[arg(long, value_enum, default_value_t = Bits::B24)]
         bits: Bits,
+        /// Bit rate of .m4a files in kbit/s (constrained VBR).
+        #[arg(long, default_value_t = 256)]
+        bitrate: u32,
         /// Make a seamless loop: the length is rounded up to whole bars and
         /// the tail (reverb, releases) is folded back into the start.
         #[arg(long)]
         r#loop: bool,
-        /// Also write one file per layer into this folder, plus manifest.json
-        /// (tempo, bar length, sections) for game engines.
+        /// Also write one file per layer, in the output's format, into this
+        /// folder, plus manifest.json (tempo, bar length, sections) for game
+        /// engines.
         #[arg(long)]
         stems: Option<PathBuf>,
         /// Keep each layer here between renders, keyed by everything that
@@ -128,14 +135,17 @@ fn run(cli: Cli) -> anyhow::Result<ExitCode> {
             print_summary(&timeline);
             println!("ok");
         }
-        Command::Render { song, output, sample_rate, bits, r#loop, stems, cache } => {
-            let Some(timeline) = load(&song)? else { return Ok(ExitCode::FAILURE) };
+        Command::Render { song, output, sample_rate, bits, bitrate, r#loop, stems, cache } => {
             let output = output.unwrap_or_else(|| song.with_extension("wav"));
             let depth = match bits {
                 Bits::B16 => BitDepth::Int16,
                 Bits::B24 => BitDepth::Int24,
                 Bits::F32 => BitDepth::Float32,
             };
+            // Checked before rendering, which can take minutes.
+            let encoding = Encoding { format: Format::from_path(&output).map_err(anyhow::Error::msg)?, depth, bitrate };
+            encoding.check().map_err(anyhow::Error::msg)?;
+            let Some(timeline) = load(&song)? else { return Ok(ExitCode::FAILURE) };
             let loop_seconds = r#loop.then(|| (timeline.end / timeline.bar_seconds - 1e-6).ceil() * timeline.bar_seconds);
             // One render, split into layers when stems are wanted: a stem is
             // the song's own take of its tracks, not a solo render of them.
@@ -146,7 +156,11 @@ fn run(cli: Cli) -> anyhow::Result<ExitCode> {
                 mat_core::render::fold_loop(&mut audio, secs);
                 println!("loop: {} bars, {}", (secs / timeline.bar_seconds).round(), format_time(secs));
             }
-            write_wav(&output, &audio, depth).with_context(|| format!("writing {}", output.display()))?;
+            if encoding.format == Format::M4a && audio.peak_db() > -1.0 {
+                // AAC reconstructs peaks between samples higher than the render's.
+                eprintln!("warning: peak {:.1} dBFS leaves under 1 dB for the AAC encoder; the file may clip on playback", audio.peak_db());
+            }
+            write_audio(&output, &audio, &encoding).map_err(anyhow::Error::msg).with_context(|| format!("writing {}", output.display()))?;
             println!("wrote {}", output.display());
 
             if let Some(dir) = stems {
@@ -161,7 +175,7 @@ fn run(cli: Cli) -> anyhow::Result<ExitCode> {
                     if let Some(secs) = loop_seconds {
                         mat_core::render::fold_loop(&mut audio, secs);
                     }
-                    let file = format!("{}.wav", layer.layer.replace(['/', ' '], "_"));
+                    let file = format!("{}.{}", layer.layer.replace(['/', ' '], "_"), encoding.format.extension());
                     let target = dir.join(&file);
                     from_cache += usize::from(layer.cached);
                     // A stem this cache has already written for this layer, cut to
@@ -170,8 +184,8 @@ fn run(cli: Cli) -> anyhow::Result<ExitCode> {
                     // gigabyte, and an edit changes one of them.
                     let kept = match (&layer_cache, layer.key) {
                         (Some(cache), Some(key)) => {
-                            let variant = format!("{}{}", bits_name(depth), if loop_seconds.is_some() { "-loop" } else { "" });
-                            Some((cache, cache.stem_path(key, audio.left.len(), &variant)))
+                            let variant = format!("{}{}", encoding.variant(), if loop_seconds.is_some() { "-loop" } else { "" });
+                            Some((cache, cache.stem_path(key, audio.left.len(), &variant, encoding.format.extension())))
                         }
                         _ => None,
                     };
@@ -182,7 +196,7 @@ fn run(cli: Cli) -> anyhow::Result<ExitCode> {
                                 // half-way must not leave a short stem under a
                                 // name the next render links without looking.
                                 let temporary = stem.with_extension(format!("{}.tmp", std::process::id()));
-                                write_wav(&temporary, &audio, depth)?;
+                                write_audio(&temporary, &audio, &encoding).map_err(anyhow::Error::msg)?;
                                 std::fs::rename(&temporary, &stem)?;
                             } else {
                                 cache.touch(&stem);
@@ -193,7 +207,7 @@ fn run(cli: Cli) -> anyhow::Result<ExitCode> {
                             }
                             linked += 1;
                         }
-                        None => write_wav(&target, &audio, depth)?,
+                        None => write_audio(&target, &audio, &encoding).map_err(anyhow::Error::msg)?,
                     }
                     println!("  {file}: peak {:.1} dBFS{}", audio.peak_db(), if layer.cached { " (cached)" } else { "" });
                     let tracks: Vec<String> = timeline.tracks.iter().filter(|t| t.layer == layer.layer).map(|t| t.name.clone()).collect();
@@ -361,14 +375,6 @@ fn render(timeline: &Timeline, sample_rate: u32) -> mat_core::Audio {
 
 /// Renders the song, with its layers kept apart when `split`, and prints
 /// the render's summary line.
-fn bits_name(depth: BitDepth) -> &'static str {
-    match depth {
-        BitDepth::Int16 => "16",
-        BitDepth::Int24 => "24",
-        BitDepth::Float32 => "32f",
-    }
-}
-
 fn render_song(timeline: &Timeline, sample_rate: u32, split: bool, cache: Option<PathBuf>) -> mat_core::render::Rendering {
     let started = Instant::now();
     let stems = match render_audio_unit_stems(timeline, sample_rate) {

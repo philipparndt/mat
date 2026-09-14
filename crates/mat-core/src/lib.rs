@@ -6,6 +6,7 @@ pub mod clap_host;
 pub mod diag;
 pub mod hash;
 pub mod dsp;
+pub mod encode;
 pub mod import;
 pub mod instruments;
 /// Public for the language server, which reads a file being typed as lines

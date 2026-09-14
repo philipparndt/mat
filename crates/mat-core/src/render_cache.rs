@@ -118,7 +118,7 @@ impl LayerCache {
         let Ok(entries) = fs::read_dir(&self.dir) else { return };
         for entry in entries.flatten() {
             let path = entry.path();
-            let is_ours = path.extension().is_some_and(|e| e == "layer" || e == "tmp" || e == "wav");
+            let is_ours = path.extension().is_some_and(|e| e == "layer" || e == "tmp" || e == "wav" || e == "flac" || e == "m4a");
             let old = entry
                 .metadata()
                 .and_then(|m| m.modified())
@@ -134,8 +134,8 @@ impl LayerCache {
     /// Where a finished stem of a layer is kept: the layer's key, the frames
     /// it was cut to and how it was written. A stem that is already there is
     /// linked into a render's output rather than written again.
-    pub fn stem_path(&self, key: u64, frames: usize, variant: &str) -> PathBuf {
-        self.dir.join(format!("{key:016x}-{frames}-{variant}.wav"))
+    pub fn stem_path(&self, key: u64, frames: usize, variant: &str, extension: &str) -> PathBuf {
+        self.dir.join(format!("{key:016x}-{frames}-{variant}.{extension}"))
     }
 
     /// Marks a stem as used now.

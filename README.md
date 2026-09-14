@@ -21,6 +21,8 @@ cargo build --release
 
 ./target/release/mat check  examples/drunken-sailor.song   # validate
 ./target/release/mat render examples/drunken-sailor.song   # -> examples/drunken-sailor.wav
+./target/release/mat render examples/drunken-sailor.song -o sailor.flac   # lossless, about 2/3 of the WAV
+./target/release/mat render examples/drunken-sailor.song -o sailor.m4a    # AAC, 256 kbit/s (--bitrate)
 ./target/release/mat play   examples/drunken-sailor.song   # render and play
 ./target/release/mat export examples/drunken-sailor.song   # arranged timeline as JSON
 ./target/release/mat inspect "logic:01 Acoustic Pianos/Steinway Grand Piano 2.exs"
@@ -97,5 +99,10 @@ layers are cut from one render of the song, so they are the same take as the
 mix and add up to it — up to the master's saturation, compressor, clipper and
 limiter, which the manifest's `mixing` and `master` entries describe so the
 engine can put a limiter of its own on the sum.
+Stems take the output's format: `-o song.flac` writes FLAC stems. For AAC
+stems, check that the engine honours the encoder delay the .m4a records, or
+the loops will not be seamless.
+
+FLAC and M4A are written by macOS `afconvert` (Apple's encoders).
 
 `private/` is gitignored and meant for songs that must not be committed.
