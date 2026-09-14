@@ -3,8 +3,10 @@ import PackageDescription
 
 let package = Package(
     name: "mat-au",
-    platforms: [.macOS(.v14)],
+    // Process taps (mat-capture) need macOS 14.2.
+    platforms: [.macOS("14.2")],
     targets: [
         .executableTarget(name: "mat-au", path: "Sources/mat-au"),
+        .executableTarget(name: "mat-capture", path: "Sources/mat-capture"),
     ]
 )

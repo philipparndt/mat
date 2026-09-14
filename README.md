@@ -34,6 +34,27 @@ swift build -c release --package-path swift
 ./swift/.build/release/mat-au list                          # installed AU instruments
 ```
 
+Recording other apps (macOS 14.2+), for example a reference track playing in
+Music or a browser, needs `MatCapture.app`:
+
+```sh
+./swift/bundle-capture.sh                                   # -> swift/.build/MatCapture.app
+cap=./swift/.build/MatCapture.app/Contents/MacOS/mat-capture
+$cap list                                                   # processes using audio (* = playing)
+$cap record ref.wav --app Music --seconds 60                # 32-bit float WAV
+$cap record ref.wav --app com.google.Chrome                 # a bundle ID includes the app's helpers
+$cap record all.wav --system --exclude Slack                # everything except Slack
+$cap stream --app Safari | …                                # raw interleaved f32le on stdout
+```
+
+It uses Core Audio process taps, so no audio driver is installed and nothing
+needs restarting. Apps are tapped while they play, and an app that isn't
+playing yet is picked up as soon as it starts. Recording begins with the first
+audio. `--mute` silences the tapped app on the speakers while it records. The
+first recording asks for the audio recording permission for MatCapture.app
+(not the terminal). The bundle is signed with your Apple Development
+certificate so that permission survives rebuilds.
+
 ## Architecture
 
 ```
@@ -49,7 +70,8 @@ swift build -c release --package-path swift
 * `crates/mat-cli`: the `mat` command.
 * `swift/`: `mat-au`, which renders Audio Unit tracks offline into dry stems.
   Mixing and effects always happen in the Rust engine, so synth tracks and
-  Audio Unit tracks can be combined in one song.
+  Audio Unit tracks can be combined in one song. `mat-capture` records the
+  audio of other apps.
 
 ## Examples
 
