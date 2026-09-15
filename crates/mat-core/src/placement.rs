@@ -48,12 +48,49 @@ pub struct Placements {
     pub bar_seconds: f64,
     /// In line order, and only lines that are heard somewhere.
     pub lines: Vec<LineSpans>,
+    /// Every track that is heard, in the song's order, with what it plays
+    /// when: for an editor that shows a playing song as threads of a program,
+    /// a track a thread and its plays the frames it passes through.
+    pub tracks: Vec<TrackPlace>,
+}
+
+/// A track that is heard, and each of its steps that sounds.
+#[derive(Debug, Clone, PartialEq)]
+pub struct TrackPlace {
+    pub name: String,
+    /// The header's line, 1-based.
+    pub line: usize,
+    /// The stem it renders into: `layer`, or the track's own name.
+    pub layer: String,
+    pub instrument: Option<String>,
+    /// The line of the instrument's header, 1-based, when it is the song's.
+    pub instrument_line: Option<usize>,
+    /// In the order they are heard.
+    pub plays: Vec<PlayPlace>,
+}
+
+/// A `play` step of a track: where it is written, what it plays, and when.
+#[derive(Debug, Clone, PartialEq)]
+pub struct PlayPlace {
+    /// The step's line, 1-based.
+    pub line: usize,
+    /// The pattern, or nil for a step of an audio track.
+    pub pattern: Option<String>,
+    /// The pattern header's line, 1-based.
+    pub pattern_line: Option<usize>,
+    pub start: f64,
+    pub end: f64,
+    /// How long one pass is: the pattern's length, or the audio stretch's.
+    pub pass_seconds: f64,
+    /// Semitones.
+    pub transpose: f32,
 }
 
 pub fn placements(song: &Song) -> Placements {
     let bar = song.bar_length();
     let mut by_line: std::collections::BTreeMap<usize, Vec<(f64, f64)>> = Default::default();
     let mut passes: std::collections::BTreeMap<usize, Vec<f64>> = Default::default();
+    let mut tracks: Vec<TrackPlace> = Vec::new();
     let mut notes: std::collections::BTreeMap<usize, Vec<NotePlace>> = Default::default();
     let mut add = |line: usize, start: f64, end: f64| {
         if end > start {
@@ -67,6 +104,7 @@ pub fn placements(song: &Song) -> Placements {
         }
         let mut cursor = 0.0;
         let mut heard: Vec<(f64, f64)> = Vec::new();
+        let mut plays: Vec<PlayPlace> = Vec::new();
         for step in &track.steps {
             match step {
                 TrackStep::At { bar: b } => cursor = (b - 1.0) * bar,
@@ -85,16 +123,34 @@ pub fn placements(song: &Song) -> Placements {
                             let span = (song.seconds(cursor), song.seconds(cursor + length));
                             add(*line, span.0, span.1);
                             heard.push(span);
+                            plays.push(PlayPlace {
+                                line: *line,
+                                pattern: None,
+                                pattern_line: None,
+                                start: span.0,
+                                end: span.1,
+                                pass_seconds: song.seconds((to - from + 1.0) * bar),
+                                transpose: 0.0,
+                            });
                             cursor += length;
                         }
                     }
                 }
-                TrackStep::Play { pattern, span, repeat, .. } => {
+                TrackStep::Play { pattern, span, repeat, transpose, .. } => {
                     let Some(pat) = song.patterns.iter().find(|p| &p.name == pattern) else { continue };
                     let length = pat.length * *repeat as f64;
                     let whole = (song.seconds(cursor), song.seconds(cursor + length));
                     add(span.line, whole.0, whole.1);
                     heard.push(whole);
+                    plays.push(PlayPlace {
+                        line: span.line,
+                        pattern: Some(pattern.clone()),
+                        pattern_line: Some(pat.span.line),
+                        start: whole.0,
+                        end: whole.1,
+                        pass_seconds: song.seconds(pat.length),
+                        transpose: *transpose,
+                    });
                     // Each line of the pattern, at each repeat: its first note to
                     // the end of its last.
                     let mut lines: std::collections::BTreeMap<usize, (f64, f64)> = Default::default();
@@ -127,13 +183,26 @@ pub fn placements(song: &Song) -> Placements {
                 }
             }
         }
+        let instrument = track.instrument.as_ref().map(|(name, _)| name.clone());
+        let instrument_line = instrument
+            .as_ref()
+            .and_then(|name| song.instruments.iter().find(|i| &i.name == name))
+            .map(|i| i.span.line);
         for (start, end) in &heard {
             add(track.span.line, *start, *end);
-            if let Some((name, _)) = &track.instrument
-                && let Some(instrument) = song.instruments.iter().find(|i| &i.name == name)
-            {
-                add(instrument.span.line, *start, *end);
+            if let Some(line) = instrument_line {
+                add(line, *start, *end);
             }
+        }
+        if !plays.is_empty() {
+            tracks.push(TrackPlace {
+                name: track.name.clone(),
+                line: track.span.line,
+                layer: track.layer.clone().unwrap_or_else(|| track.name.clone()),
+                instrument,
+                instrument_line,
+                plays,
+            });
         }
     }
 
@@ -155,7 +224,7 @@ pub fn placements(song: &Song) -> Placements {
         lines.push(LineSpans { line: section.line, spans: vec![span], passes: Vec::new(), notes: Vec::new() });
     }
     lines.sort_by_key(|l| l.line);
-    Placements { seconds, bar_seconds: song.seconds(bar), lines }
+    Placements { seconds, bar_seconds: song.seconds(bar), lines, tracks }
 }
 
 /// Sorted, with overlapping and touching stretches joined.
@@ -266,6 +335,33 @@ track ghost
         assert_eq!(snare.passes, vec![4.0, 6.0]);
         assert_eq!(snare.notes.iter().map(|n| (n.start, n.col, n.len)).collect::<Vec<_>>(), vec![(0.5, 11, 1), (1.5, 15, 1)]);
         assert!(at("track melody").notes.is_empty() && at("track melody").passes.is_empty());
+    }
+
+    #[test]
+    fn each_heard_track_says_what_it_plays_when() {
+        let p = placements_of(SONG);
+        assert_eq!(p.tracks.iter().map(|t| t.name.as_str()).collect::<Vec<_>>(), vec!["melody", "drums"], "the muted ghost is not heard");
+        let melody = &p.tracks[0];
+        assert_eq!(melody.line, line_of(SONG, "track melody"));
+        assert_eq!(melody.layer, "melody");
+        assert_eq!(melody.instrument.as_deref(), Some("lead"));
+        assert_eq!(melody.instrument_line, Some(line_of(SONG, "instrument lead synth")));
+        let first_play = SONG.lines().position(|l| l == "  play verse").unwrap() + 1;
+        assert_eq!(
+            melody.plays[0],
+            PlayPlace {
+                line: first_play,
+                pattern: Some("verse".into()),
+                pattern_line: Some(line_of(SONG, "pattern verse")),
+                start: 0.0,
+                end: 4.0,
+                pass_seconds: 4.0,
+                transpose: 0.0,
+            }
+        );
+        assert_eq!((melody.plays[1].start, melody.plays[1].end), (8.0, 12.0));
+        let drums = &p.tracks[1];
+        assert_eq!((drums.plays[0].start, drums.plays[0].end, drums.plays[0].pass_seconds), (4.0, 8.0, 2.0), "two one-bar passes");
     }
 
     #[test]

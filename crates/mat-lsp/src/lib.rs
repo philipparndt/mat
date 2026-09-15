@@ -532,6 +532,23 @@ pub fn timeline(analysis: &Analysis, uri: &Url) -> Option<serde_json::Value> {
         "seconds": placements.seconds,
         "barSeconds": placements.bar_seconds,
         "lines": lines,
+        // Lines 0-based, as everywhere on the wire.
+        "tracks": placements.tracks.iter().map(|t| serde_json::json!({
+            "name": t.name,
+            "line": t.line.saturating_sub(1),
+            "layer": t.layer,
+            "instrument": t.instrument,
+            "instrumentLine": t.instrument_line.map(|l| l.saturating_sub(1)),
+            "plays": t.plays.iter().map(|p| serde_json::json!({
+                "line": p.line.saturating_sub(1),
+                "pattern": p.pattern,
+                "patternLine": p.pattern_line.map(|l| l.saturating_sub(1)),
+                "start": p.start,
+                "end": p.end,
+                "pass": p.pass_seconds,
+                "transpose": p.transpose,
+            })).collect::<Vec<_>>(),
+        })).collect::<Vec<_>>(),
     }))
 }
 
@@ -828,6 +845,9 @@ master
         let first = &noted["notes"][0];
         assert!(first[3].as_u64().unwrap() > first[2].as_u64().unwrap());
         assert!(!noted["passes"].as_array().unwrap().is_empty());
+        // The tracks, with what they play: the melody's play line is 19.
+        let melody = placed["tracks"].as_array().unwrap().iter().find(|t| t["name"] == "melody").expect("the melody is a track");
+        assert!(melody["plays"].as_array().unwrap().iter().any(|p| p["line"] == 19 && p["pattern"] == "verse"));
         let broken = Analysis::of(&SONG.replace("track melody", "trak melody"), a.song.clone());
         assert!(timeline(&broken, &url).is_none());
     }
