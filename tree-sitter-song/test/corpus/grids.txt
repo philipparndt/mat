@@ -1,0 +1,116 @@
+================================================================================
+Drum grid
+================================================================================
+
+pattern beat grid=1/16
+  kick  X.....x.X.....x.
+  snare ....X.......X...
+  hat   x.o.x.o.x.o.x.o.
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (pattern_block
+    (name)
+    (option
+      (key)
+      (fraction))
+    (grid_row
+      (drum)
+      (grid_hit)
+      (grid_rest)
+      (grid_hit)
+      (grid_rest)
+      (grid_hit)
+      (grid_rest)
+      (grid_hit)
+      (grid_rest))
+    (grid_row
+      (drum)
+      (grid_rest)
+      (grid_hit)
+      (grid_rest)
+      (grid_hit)
+      (grid_rest))
+    (grid_row
+      (drum)
+      (grid_hit)
+      (grid_rest)
+      (grid_hit)
+      (grid_rest)
+      (grid_hit)
+      (grid_rest)
+      (grid_hit)
+      (grid_rest)
+      (grid_hit)
+      (grid_rest)
+      (grid_hit)
+      (grid_rest)
+      (grid_hit)
+      (grid_rest)
+      (grid_hit)
+      (grid_rest))))
+
+================================================================================
+Grid cells: velocity digits, holds, dashes, underscores and bars
+================================================================================
+
+pattern cells grid=1/8
+  kick x-x-9=== | 1_5_
+  hat  ____x___
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (pattern_block
+    (name)
+    (option
+      (key)
+      (fraction))
+    (grid_row
+      (drum)
+      (grid_hit)
+      (grid_rest)
+      (grid_hit)
+      (grid_rest)
+      (grid_hit)
+      (grid_hold)
+      (bar)
+      (grid_hit)
+      (grid_rest)
+      (grid_hit)
+      (grid_rest))
+    (grid_row
+      (drum)
+      (grid_rest)
+      (grid_hit)
+      (grid_rest))))
+
+================================================================================
+Grid rows played by notes
+================================================================================
+
+pattern ostinato grid=1/16
+  C4  x...x...
+  Bb2 ..x===..
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (pattern_block
+    (name)
+    (option
+      (key)
+      (fraction))
+    (grid_row
+      (note)
+      (grid_hit)
+      (grid_rest)
+      (grid_hit)
+      (grid_rest))
+    (grid_row
+      (note)
+      (grid_rest)
+      (grid_hit)
+      (grid_hold)
+      (grid_rest))))

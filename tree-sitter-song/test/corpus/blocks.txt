@@ -1,0 +1,195 @@
+================================================================================
+Global statements
+================================================================================
+
+title "My Song"
+tempo 120          # quarter notes per minute
+meter 4/4
+swing 0.58 grid=1/8
+seed 7
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (statement
+    (string))
+  (statement
+    (number))
+  (comment)
+  (statement
+    (fraction))
+  (statement
+    (number)
+    (option
+      (key)
+      (fraction)))
+  (statement
+    (number)))
+
+================================================================================
+Section
+================================================================================
+
+section chorus bars=17-32
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (section_block
+    (name)
+    (option
+      (key)
+      (range))))
+
+================================================================================
+Instrument kinds
+================================================================================
+
+instrument lead synth
+  osc saw
+instrument kit drums
+instrument acid tb303
+instrument piano sampler
+instrument drums samples
+instrument dj scratch
+instrument stab clap
+instrument keys au
+instrument bare
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (instrument_block
+    (name)
+    (instrument_kind)
+    (setting
+      (setting_name)
+      (identifier)))
+  (instrument_block
+    (name)
+    (instrument_kind))
+  (instrument_block
+    (name)
+    (instrument_kind))
+  (instrument_block
+    (name)
+    (instrument_kind))
+  (instrument_block
+    (name)
+    (instrument_kind))
+  (instrument_block
+    (name)
+    (instrument_kind))
+  (instrument_block
+    (name)
+    (instrument_kind))
+  (instrument_block
+    (name)
+    (instrument_kind))
+  (instrument_block
+    (name)))
+
+================================================================================
+Instrument and master from a preset
+================================================================================
+
+instrument pad preset dream-pad
+  filter lowpass cutoff=600
+instrument kit preset 909-kit
+master preset house
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (instrument_block
+    (name)
+    (preset_name)
+    (setting
+      (setting_name)
+      (identifier)
+      (option
+        (key)
+        (number))))
+  (instrument_block
+    (name)
+    (preset_name))
+  (master_block
+    (preset_name)))
+
+================================================================================
+Preset definitions
+================================================================================
+
+preset dream-pad synth "Soft, wide, slowly moving pad"
+  osc supersaw detune=0.4 mix=0.65 level=0.7
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (preset_block
+    (name)
+    (instrument_kind)
+    (string)
+    (setting
+      (setting_name)
+      (identifier)
+      (option
+        (key)
+        (number))
+      (option
+        (key)
+        (number))
+      (option
+        (key)
+        (number)))))
+
+================================================================================
+Pattern and track headers
+================================================================================
+
+pattern verse
+pattern beat grid=1/16 bars=4
+pattern theme pedal
+pattern roll grid
+track melody
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (pattern_block
+    (name))
+  (pattern_block
+    (name)
+    (option
+      (key)
+      (fraction))
+    (option
+      (key)
+      (number)))
+  (pattern_block
+    (name)
+    (identifier))
+  (pattern_block
+    (name)
+    (identifier))
+  (track_block
+    (name)))
+
+================================================================================
+Master
+================================================================================
+
+master
+  gain 3
+  limiter off
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (master_block
+    (setting
+      (setting_name)
+      (number))
+    (setting
+      (setting_name)
+      (identifier))))

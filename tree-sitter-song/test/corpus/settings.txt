@@ -1,0 +1,244 @@
+================================================================================
+Synth settings with options
+================================================================================
+
+instrument lead synth
+  osc saw voices=3 spread=7
+  osc square octave=-1 level=0.3
+  noise 0.05
+  filter lowpass cutoff=1.2k res=0.2 env=3
+  amp attack=10ms decay=0.3 sustain=0.8 release=0.2
+  lfo filter rate=0.08 depth=0.5
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (instrument_block
+    (name)
+    (instrument_kind)
+    (setting
+      (setting_name)
+      (identifier)
+      (option
+        (key)
+        (number))
+      (option
+        (key)
+        (number)))
+    (setting
+      (setting_name)
+      (identifier)
+      (option
+        (key)
+        (number))
+      (option
+        (key)
+        (number)))
+    (setting
+      (setting_name)
+      (number))
+    (setting
+      (setting_name)
+      (identifier)
+      (option
+        (key)
+        (number))
+      (option
+        (key)
+        (number))
+      (option
+        (key)
+        (number)))
+    (setting
+      (setting_name)
+      (option
+        (key)
+        (number))
+      (option
+        (key)
+        (number))
+      (option
+        (key)
+        (number))
+      (option
+        (key)
+        (number)))
+    (setting
+      (setting_name)
+      (identifier)
+      (option
+        (key)
+        (number))
+      (option
+        (key)
+        (number)))))
+
+================================================================================
+Drum kit voices
+================================================================================
+
+instrument kit drums
+  kick decay=1.3 tune=-2 gain=-1
+  openhat decay=0.6 gain=-3dB
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (instrument_block
+    (name)
+    (instrument_kind)
+    (setting
+      (setting_name)
+      (option
+        (key)
+        (number))
+      (option
+        (key)
+        (number))
+      (option
+        (key)
+        (number)))
+    (setting
+      (setting_name)
+      (option
+        (key)
+        (number))
+      (option
+        (key)
+        (number)))))
+
+================================================================================
+Strings, notes and ranges
+================================================================================
+
+instrument kit samples
+  kick "stems/Drums.wav" at=41.52s length=0.42s
+  note G2 "stems/Bass.wav" at=122.7s loop=0.5s-1.7s keys=C1-B3 vel=1-127
+  amp release=30ms
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (instrument_block
+    (name)
+    (instrument_kind)
+    (setting
+      (setting_name)
+      (string)
+      (option
+        (key)
+        (number))
+      (option
+        (key)
+        (number)))
+    (setting
+      (setting_name)
+      (note)
+      (string)
+      (option
+        (key)
+        (number))
+      (option
+        (key)
+        (range))
+      (option
+        (key)
+        (note_range))
+      (option
+        (key)
+        (range)))
+    (setting
+      (setting_name)
+      (option
+        (key)
+        (number)))))
+
+================================================================================
+Sampler, clap and au settings
+================================================================================
+
+instrument piano sampler
+  load "logic:01 Acoustic Pianos/Steinway Grand Piano 2.exs"
+  map tom=43
+instrument stab clap
+  plugin "Surge XT"
+  param "A Amp EG Release" 0.1
+instrument lead au
+  component aumu samp appl
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (instrument_block
+    (name)
+    (instrument_kind)
+    (setting
+      (setting_name)
+      (string))
+    (setting
+      (setting_name)
+      (option
+        (key)
+        (number))))
+  (instrument_block
+    (name)
+    (instrument_kind)
+    (setting
+      (setting_name)
+      (string))
+    (setting
+      (setting_name)
+      (string)
+      (number)))
+  (instrument_block
+    (name)
+    (instrument_kind)
+    (setting
+      (setting_name)
+      (identifier)
+      (identifier)
+      (identifier))))
+
+================================================================================
+References in settings
+================================================================================
+
+instrument dj scratch
+  source lead bars=49-49
+master
+  sidechain drums threshold=-24 ratio=6
+  delay time=3/16 feedback=0.35 tone=3k
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (instrument_block
+    (name)
+    (instrument_kind)
+    (reference_setting
+      (setting_name)
+      (reference)
+      (option
+        (key)
+        (range))))
+  (master_block
+    (reference_setting
+      (setting_name)
+      (reference)
+      (option
+        (key)
+        (number))
+      (option
+        (key)
+        (number)))
+    (setting
+      (setting_name)
+      (option
+        (key)
+        (fraction))
+      (option
+        (key)
+        (number))
+      (option
+        (key)
+        (number)))))

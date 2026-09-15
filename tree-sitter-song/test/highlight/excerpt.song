@@ -1,0 +1,42 @@
+instrument acid tb303
+# <- keyword
+#          ^ function
+#               ^ type
+  wave saw
+# ^ property
+#      ^ type.builtin
+  kick decay=0.8
+#      ^ property
+#           ^ operator
+#            ^ number
+
+pattern line
+  A1:s A1 A2! r [C3 E3]:e@90 |
+# ^ constant
+#   ^ punctuation.delimiter
+#    ^ attribute
+#           ^ operator
+#             ^ constant.builtin
+#               ^ punctuation.bracket
+#                       ^ attribute
+#                         ^ label
+#                            ^ punctuation.delimiter
+
+pattern beat grid=1/16
+  kick    X...X===
+# ^ constant
+#         ^ string
+#          ^ punctuation.delimiter
+#              ^ operator
+
+track acid
+  instrument acid
+# ^ property
+#            ^ variable
+  sweep cutoff from=0.1 to=0.35 bars=1-8
+#       ^ variable.parameter
+#                                    ^ number
+  play line x16
+# ^ keyword
+#      ^ variable
+#           ^ number

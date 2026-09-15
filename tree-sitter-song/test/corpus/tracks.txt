@@ -1,0 +1,149 @@
+================================================================================
+Track settings and play steps
+================================================================================
+
+track melody
+  instrument lead
+  gain -6
+  pan 0.2
+  at 5
+  play verse x2 transpose=2 vel=0.9
+  rest 4
+  mute
+  layer drums
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (track_block
+    (name)
+    (reference_setting
+      (setting_name)
+      (reference))
+    (setting
+      (setting_name)
+      (number))
+    (setting
+      (setting_name)
+      (number))
+    (setting
+      (setting_name)
+      (number))
+    (play_step
+      (reference)
+      (repeat_count)
+      (option
+        (key)
+        (number))
+      (option
+        (key)
+        (number)))
+    (setting
+      (setting_name)
+      (number))
+    (setting
+      (setting_name))
+    (reference_setting
+      (setting_name)
+      (reference))))
+
+================================================================================
+Track effects, sidechain and sweeps
+================================================================================
+
+track acid
+  eq lowcut=150 low=-2 mid=+1 midfreq=1k
+  sidechain drums depth=0.8 attack=5ms on=kick
+  sweep cutoff from=0.2 to=0.7 bars=9-16
+  humanize time=8ms vel=10
+  swing 0.62 grid=1/8
+  seed 3
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (track_block
+    (name)
+    (setting
+      (setting_name)
+      (option
+        (key)
+        (number))
+      (option
+        (key)
+        (number))
+      (option
+        (key)
+        (number))
+      (option
+        (key)
+        (number)))
+    (reference_setting
+      (setting_name)
+      (reference)
+      (option
+        (key)
+        (number))
+      (option
+        (key)
+        (number))
+      (option
+        (key)
+        (identifier)))
+    (sweep
+      (setting_name)
+      (parameter)
+      (option
+        (key)
+        (number))
+      (option
+        (key)
+        (number))
+      (option
+        (key)
+        (range)))
+    (setting
+      (setting_name)
+      (option
+        (key)
+        (number))
+      (option
+        (key)
+        (number)))
+    (setting
+      (setting_name)
+      (number)
+      (option
+        (key)
+        (fraction)))
+    (setting
+      (setting_name)
+      (number))))
+
+================================================================================
+Audio tracks
+================================================================================
+
+track vocals
+  audio "stems/Vocals.wav" offset=0.52s
+  play bars=17-24 x2
+  play all
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (track_block
+    (name)
+    (setting
+      (setting_name)
+      (string)
+      (option
+        (key)
+        (number)))
+    (play_step
+      (option
+        (key)
+        (range))
+      (repeat_count))
+    (play_step
+      (reference))))

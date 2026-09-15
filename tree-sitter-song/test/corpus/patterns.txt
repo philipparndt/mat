@@ -1,0 +1,195 @@
+================================================================================
+Notes with durations and bar checks
+================================================================================
+
+pattern verse
+  A4:q A4:e A4 | D4:h F#3 Bb2 C-1 |
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (pattern_block
+    (name)
+    (note_line
+      (event
+        (note)
+        (duration))
+      (event
+        (note)
+        (duration))
+      (event
+        (note))
+      (bar)
+      (event
+        (note)
+        (duration))
+      (event
+        (note))
+      (event
+        (note))
+      (event
+        (note))
+      (bar))))
+
+================================================================================
+Dotted, triplet, fraction and sum durations
+================================================================================
+
+pattern p
+  C4:q. D4:e3 E4:3/16 F4:h+e r:h.+s
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (pattern_block
+    (name)
+    (note_line
+      (event
+        (note)
+        (duration))
+      (event
+        (note)
+        (duration))
+      (event
+        (note)
+        (duration))
+      (event
+        (note)
+        (duration))
+      (event
+        (rest)
+        (duration)))))
+
+================================================================================
+Velocity and articulations
+================================================================================
+
+pattern acid
+  D4:h@80 C2:s! D2~ E2:s!~ F2@0.5
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (pattern_block
+    (name)
+    (note_line
+      (event
+        (note)
+        (duration)
+        (velocity))
+      (event
+        (note)
+        (duration)
+        (articulation))
+      (event
+        (note)
+        (articulation))
+      (event
+        (note)
+        (duration)
+        (articulation))
+      (event
+        (note)
+        (velocity)))))
+
+================================================================================
+Chords
+================================================================================
+
+pattern chords
+  [C4 E4 G4]:h [D3 A3 F4]:w@90
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (pattern_block
+    (name)
+    (note_line
+      (event
+        (chord
+          (note)
+          (note)
+          (note))
+        (duration))
+      (event
+        (chord
+          (note)
+          (note)
+          (note))
+        (duration)
+        (velocity)))))
+
+================================================================================
+Rests
+================================================================================
+
+pattern rests
+  r r:q _ _:e
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (pattern_block
+    (name)
+    (note_line
+      (event
+        (rest))
+      (event
+        (rest)
+        (duration))
+      (event
+        (rest))
+      (event
+        (rest)
+        (duration)))))
+
+================================================================================
+Drum hits in a note pattern
+================================================================================
+
+pattern hits
+  kick:q snare hat:e hat baby:s
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (pattern_block
+    (name)
+    (note_line
+      (event
+        (drum)
+        (duration))
+      (event
+        (drum))
+      (event
+        (drum)
+        (duration))
+      (event
+        (drum))
+      (event
+        (drum)
+        (duration)))))
+
+================================================================================
+A line of one bare note or drum
+================================================================================
+
+pattern bare
+  kick
+  C4 D4 E4
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (pattern_block
+    (name)
+    (note_line
+      (event
+        (drum)))
+    (note_line
+      (event
+        (note))
+      (event
+        (note))
+      (event
+        (note)))))
