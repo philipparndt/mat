@@ -1,0 +1,15 @@
+# A drum kit and its beats, for any song to include.
+
+instrument kit drums
+  kick decay=0.9
+  hat gain=-4
+  openhat decay=0.5 gain=-4
+
+pattern kicks grid=1/16
+  kick    X...X...X...X...
+
+pattern beat grid=1/16
+  kick    X...X...X...X...
+  clap    ....x.......x...
+  hat     x.x.x.x.x.x.x.x.
+  openhat ..o...o...o...o.

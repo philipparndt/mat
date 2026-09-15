@@ -8,68 +8,131 @@
 //!
 //! The analysis is pure functions over the text — `completions`, `hover`,
 //! `definition`, `symbols`, `diagnostics` — so it is tested without a
-//! transport; `run_stdio` wraps them in the protocol.
+//! transport; `Server` keeps the open documents and the songs they are in,
+//! and `run_stdio` wraps it in the protocol.
+//!
+//! **A song is several files.** A song that includes others is analysed as
+//! one, through a loader that reads an open document's text before the disk.
+//! Its diagnostics are published to the file each is in, a `mat/timeline` is
+//! sent for every one of its files, and a name is defined wherever in the song
+//! it is. An included file opened on its own is analysed through a song that
+//! includes it: an open one, or else one found in the workspace.
 
 use std::collections::HashMap;
 use std::error::Error;
+use std::path::{Path, PathBuf};
 
 use lsp_server::{Connection, Message, Notification, Request, Response};
 use lsp_types::notification::{DidChangeTextDocument, DidCloseTextDocument, DidOpenTextDocument, Notification as _, PublishDiagnostics};
 use lsp_types::request::{Completion, DocumentSymbolRequest, GotoDefinition, HoverRequest, Request as _};
 use lsp_types::{
-    CompletionItem, CompletionItemKind, CompletionOptions, CompletionResponse, Diagnostic, DiagnosticSeverity, DocumentSymbol,
-    DocumentSymbolResponse, GotoDefinitionResponse, Hover, HoverContents, HoverProviderCapability, InitializeParams, Location,
-    MarkupContent, MarkupKind, OneOf, Position, PublishDiagnosticsParams, Range, ServerCapabilities, SymbolKind,
-    TextDocumentSyncCapability, TextDocumentSyncKind, Url,
+    CompletionItem, CompletionItemKind, CompletionOptions, CompletionResponse, CompletionTextEdit, Diagnostic, DiagnosticSeverity,
+    DocumentSymbol, DocumentSymbolResponse, GotoDefinitionResponse, Hover, HoverContents, HoverProviderCapability, InitializeParams,
+    Location, MarkupContent, MarkupKind, OneOf, Position, PublishDiagnosticsParams, Range, ServerCapabilities, SymbolKind,
+    TextDocumentSyncCapability, TextDocumentSyncKind, TextEdit, Url,
 };
 use mat_core::diag::{Severity, Span};
-use mat_core::lexer::{Line, lex};
+use mat_core::lexer::{Line, lex_file};
 use mat_core::model::Song;
+use mat_core::parser::{identity, normalize};
 
 pub mod docs;
 
 // MARK: - What the text says
 
-/// A document as the server sees it: the text, its lines of tokens, and the
-/// song when it parses — or the last one that did, so names keep completing
-/// while a line is half typed.
-pub struct Analysis {
+/// A file of a song: its path, its text, and its lines of tokens, one entry
+/// per source line.
+#[derive(Clone)]
+pub struct SourceFile {
+    /// Empty for a document analysed without one.
+    pub path: PathBuf,
     pub text: String,
     pub lines: Vec<Line>,
+}
+
+impl SourceFile {
+    fn of(path: PathBuf, text: &str, file: usize) -> SourceFile {
+        SourceFile { path, text: text.to_string(), lines: line_slots(text, file) }
+    }
+}
+
+/// One entry per source line, blank and comment lines included as lines with
+/// no tokens: the lexer leaves those out, and everything here is asked by the
+/// line the cursor is on.
+fn line_slots(text: &str, file: usize) -> Vec<Line> {
+    let mut lex_diags = Vec::new();
+    let count = text.lines().count();
+    let mut lines: Vec<Line> = (0..count).map(|_| Line { indented: false, tokens: Vec::new() }).collect();
+    for line in lex_file(text, file, &mut lex_diags) {
+        if let Some(first) = line.tokens.first() {
+            let index = first.span.line.saturating_sub(1);
+            if index < count {
+                lines[index] = line;
+            }
+        }
+    }
+    lines
+}
+
+/// A song as the server sees it, looked at from one of its files: every
+/// file's text and lines, and the song when it parses — or the last one that
+/// did, so names keep completing while a line is half typed.
+#[derive(Clone)]
+pub struct Analysis {
+    /// The file being looked at, an index into `files`: the one whose text,
+    /// lines, completions and symbols the functions here answer for.
+    pub file: usize,
+    /// The song first, then each file it includes, as `Span::file` counts.
+    pub files: Vec<SourceFile>,
     pub song: Option<Song>,
+    /// Every file's, each span saying which.
     pub diagnostics: Vec<mat_core::Diagnostic>,
     /// Whether `song` is this text's, rather than the last one that parsed.
     pub parsed: bool,
 }
 
 impl Analysis {
+    /// A document with no path: an `include` in it is a diagnostic.
     pub fn of(text: &str, previous: Option<Song>) -> Analysis {
-        let mut lex_diags = Vec::new();
-        // One entry per source line, blank and comment lines included as
-        // lines with no tokens: the lexer leaves those out, and everything
-        // here is asked by the line the cursor is on.
-        let count = text.lines().count();
-        let mut lines: Vec<Line> = (0..count).map(|_| Line { indented: false, tokens: Vec::new() }).collect();
-        for line in lex(text, &mut lex_diags) {
-            if let Some(first) = line.tokens.first() {
-                let index = first.span.line.saturating_sub(1);
-                if index < count {
-                    lines[index] = line;
-                }
-            }
-        }
-        let (song, mut diagnostics) = mat_core::parse(text);
-        if let Some(song) = &song {
-            if let Err(errors) = mat_core::arrange(song) {
-                diagnostics.extend(errors);
-            }
+        let (song, diagnostics) = mat_core::parse(text);
+        Self::arranged(vec![SourceFile::of(PathBuf::new(), text, 0)], song, diagnostics, previous)
+    }
+
+    /// The song at `path`, with the files it includes read by `loader`.
+    pub fn of_song(text: &str, path: &Path, loader: mat_core::parser::Loader, previous: Option<Song>) -> Analysis {
+        let parsed = mat_core::parse_with(text, path, loader);
+        let files = parsed.sources.iter().enumerate().map(|(i, s)| SourceFile::of(s.path.clone(), &s.text, i)).collect();
+        Self::arranged(files, parsed.song, parsed.diagnostics, previous)
+    }
+
+    fn arranged(files: Vec<SourceFile>, song: Option<Song>, mut diagnostics: Vec<mat_core::Diagnostic>, previous: Option<Song>) -> Analysis {
+        if let Some(song) = &song
+            && let Err(errors) = mat_core::arrange(song)
+        {
+            diagnostics.extend(errors);
         }
         let parsed = song.is_some();
-        Analysis { text: text.to_string(), lines, song: song.or(previous), diagnostics, parsed }
+        Analysis { file: 0, files, song: song.or(previous), diagnostics, parsed }
+    }
+
+    /// The same analysis, looked at from another of its files.
+    pub fn at(mut self, file: usize) -> Analysis {
+        self.file = file.min(self.files.len().saturating_sub(1));
+        self
+    }
+
+    /// The text of the file being looked at.
+    pub fn text(&self) -> &str {
+        &self.files[self.file].text
+    }
+
+    /// The lines of the file being looked at.
+    pub fn lines(&self) -> &[Line] {
+        &self.files[self.file].lines
     }
 
     fn line_text(&self, line: usize) -> &str {
-        self.text.lines().nth(line).unwrap_or("")
+        self.text().lines().nth(line).unwrap_or("")
     }
 
     fn instrument_names(&self) -> Vec<&str> {
@@ -180,12 +243,21 @@ pub fn range(text: &str, span: Span) -> Range {
 
 // MARK: - Diagnostics
 
+
+/// The diagnostics of the file being looked at.
 pub fn diagnostics(analysis: &Analysis) -> Vec<Diagnostic> {
+    diagnostics_in(analysis, analysis.file)
+}
+
+/// The diagnostics of one file of the song, by its index.
+pub fn diagnostics_in(analysis: &Analysis, file: usize) -> Vec<Diagnostic> {
+    let text = analysis.files.get(file).map_or("", |f| f.text.as_str());
     analysis
         .diagnostics
         .iter()
+        .filter(|d| d.span.file == file)
         .map(|d| Diagnostic {
-            range: range(&analysis.text, d.span),
+            range: range(text, d.span),
             severity: Some(match d.severity {
                 Severity::Error => DiagnosticSeverity::ERROR,
                 Severity::Warning => DiagnosticSeverity::WARNING,
@@ -253,6 +325,7 @@ pub fn completions(analysis: &Analysis, position: Position) -> Vec<CompletionIte
     let mut items: Vec<CompletionItem> = if !typing.indented {
         match (word(0), index) {
             (_, 0) => keyword_items(docs::TOP_LEVEL),
+            ("include", 1) => return include_completions(analysis, position, &typing),
             ("instrument", 2) => keyword_items(docs::INSTRUMENT_KINDS),
             ("instrument", 3) if word(2) == "preset" => preset_items(|kind| kind != "master"),
             ("master", 1) => keyword_items(&[("preset", "Start from a built-in master chain, then override settings below.")]),
@@ -264,7 +337,7 @@ pub fn completions(analysis: &Analysis, position: Position) -> Vec<CompletionIte
             _ => Vec::new(),
         }
     } else {
-        match block_at(&analysis.lines, line) {
+        match block_at(analysis.lines(), line) {
             Block::Top => Vec::new(),
             Block::Instrument { kind } => instrument_completions(analysis, kind.as_deref(), &typing),
             Block::Pattern => {
@@ -289,6 +362,64 @@ pub fn completions(analysis: &Analysis, position: Position) -> Vec<CompletionIte
         items.retain(|item| item.label.to_lowercase().starts_with(&prefix));
     }
     items
+}
+
+/// The `.song` files under the folder of the file being typed in, as paths
+/// from that folder, for `include "`. The whole string is replaced, quotes
+/// and all, so it does not matter what an editor takes a word to be.
+fn include_completions(analysis: &Analysis, position: Position, typing: &Typing) -> Vec<CompletionItem> {
+    let own = &analysis.files[analysis.file].path;
+    let Some(dir) = own.parent().filter(|_| !own.as_os_str().is_empty()) else { return Vec::new() };
+    let text = analysis.line_text(position.line as usize);
+    let cursor = char_index(text, position.character);
+    let start = cursor.saturating_sub(typing.prefix.chars().count());
+    let typed = typing.prefix.trim_start_matches('"').to_lowercase();
+    let closed = text.chars().nth(cursor) == Some('"');
+    let edit_range = Range { start: Position::new(position.line, utf16_column(text, start)), end: Position::new(position.line, utf16_column(text, cursor + usize::from(closed))) };
+    let mut found = Vec::new();
+    song_files(dir, 4, &mut found);
+    found.sort();
+    let own_identity = identity(own);
+    found
+        .into_iter()
+        .filter(|path| identity(path) != own_identity)
+        .filter_map(|path| {
+            let relative = path.strip_prefix(dir).ok()?.to_string_lossy().replace('\\', "/");
+            if !relative.to_lowercase().starts_with(&typed) {
+                return None;
+            }
+            let quoted = format!("\"{relative}\"");
+            Some(CompletionItem {
+                label: relative.clone(),
+                kind: Some(CompletionItemKind::FILE),
+                filter_text: Some(format!("\"{relative}")),
+                text_edit: Some(CompletionTextEdit::Edit(TextEdit { range: edit_range, new_text: quoted })),
+                ..Default::default()
+            })
+        })
+        .collect()
+}
+
+/// The `.song` files under a folder, `depth` folders down, leaving out
+/// hidden folders and the ones tools fill: `target`, `node_modules`.
+fn song_files(dir: &Path, depth: usize, out: &mut Vec<PathBuf>) {
+    const MOST: usize = 5000;
+    let Ok(entries) = std::fs::read_dir(dir) else { return };
+    for entry in entries.flatten() {
+        if out.len() >= MOST {
+            return;
+        }
+        let path = entry.path();
+        let name = entry.file_name().to_string_lossy().into_owned();
+        let Ok(kind) = entry.file_type() else { continue };
+        if kind.is_dir() {
+            if depth > 0 && !name.starts_with('.') && name != "target" && name != "node_modules" {
+                song_files(&path, depth - 1, out);
+            }
+        } else if path.extension().is_some_and(|e| e == "song") {
+            out.push(path);
+        }
+    }
 }
 
 fn instrument_completions(analysis: &Analysis, kind: Option<&str>, typing: &Typing) -> Vec<CompletionItem> {
@@ -338,13 +469,14 @@ fn track_completions(analysis: &Analysis, typing: &Typing) -> Vec<CompletionItem
 
 // MARK: - Names and where they are defined
 
-/// A top-level line's kind, name and the name's span, for each block that has
-/// a name. Off the lexer, so it holds while the file does not parse.
+/// A top-level line's kind, name and the name's span — which says its file —
+/// and its line index, for each block that has a name, in every file of the
+/// song: the file being looked at first. Off the lexer, so it holds while the
+/// song does not parse.
 fn definitions(analysis: &Analysis) -> Vec<(&str, &str, Span, usize)> {
-    analysis
-        .lines
-        .iter()
-        .enumerate()
+    let order = std::iter::once(analysis.file).chain((0..analysis.files.len()).filter(|f| *f != analysis.file));
+    order
+        .flat_map(|file| analysis.files[file].lines.iter().enumerate())
         .filter(|(_, l)| !l.indented && l.tokens.len() >= 2 && BLOCK_KEYWORDS.contains(&l.tokens[0].text.as_str()))
         .map(|(index, l)| (l.tokens[0].text.as_str(), l.tokens[1].text.as_str(), l.tokens[1].span, index))
         .collect()
@@ -352,7 +484,7 @@ fn definitions(analysis: &Analysis) -> Vec<(&str, &str, Span, usize)> {
 
 /// The token under a position, with its index on the line.
 fn token_at(analysis: &Analysis, position: Position) -> Option<(usize, &mat_core::lexer::Token)> {
-    let line = analysis.lines.get(position.line as usize)?;
+    let line = analysis.lines().get(position.line as usize)?;
     let text = analysis.line_text(position.line as usize);
     let at = char_index(text, position.character) + 1;
     line.tokens.iter().enumerate().find(|(_, t)| t.span.col <= at && at <= t.span.col + t.span.len)
@@ -361,9 +493,9 @@ fn token_at(analysis: &Analysis, position: Position) -> Option<(usize, &mat_core
 /// What kind of thing a token refers to, when it is a reference.
 fn referent(analysis: &Analysis, position: Position) -> Option<(&'static str, String)> {
     let (index, token) = token_at(analysis, position)?;
-    let line = analysis.lines.get(position.line as usize)?;
+    let line = analysis.lines().get(position.line as usize)?;
     let first = line.tokens.first()?.text.as_str();
-    let block = block_at(&analysis.lines, position.line as usize);
+    let block = block_at(analysis.lines(), position.line as usize);
     let kind = match (block, first, index) {
         (Block::Track, "instrument", 1) => "instrument",
         (Block::Track, "play", 1) => "pattern",
@@ -375,24 +507,46 @@ fn referent(analysis: &Analysis, position: Position) -> Option<(&'static str, St
     Some((kind, token.text.clone()))
 }
 
-/// Where the name under the cursor is defined.
-pub fn definition(analysis: &Analysis, position: Position) -> Option<Range> {
+/// The file of the song an `include` line under the cursor names.
+fn included_at(analysis: &Analysis, position: Position) -> Option<usize> {
+    let (index, token) = token_at(analysis, position)?;
+    let line = analysis.lines().get(position.line as usize)?;
+    if line.indented || index != 1 || line.tokens[0].text != "include" {
+        return None;
+    }
+    let dir = analysis.files[analysis.file].path.parent()?;
+    let wanted = identity(&normalize(&dir.join(&token.text)));
+    analysis.files.iter().position(|f| !f.path.as_os_str().is_empty() && identity(&f.path) == wanted)
+}
+
+/// Where the name under the cursor is defined: the file of the song, by its
+/// index, and the name's range in it. On an `include` line, the start of the
+/// file it names.
+pub fn definition(analysis: &Analysis, position: Position) -> Option<(usize, Range)> {
+    if let Some(file) = included_at(analysis, position) {
+        return Some((file, Range::default()));
+    }
     let (kind, name) = referent(analysis, position)?;
-    definitions(analysis).into_iter().find(|(k, n, _, _)| *k == kind && *n == name).map(|(_, _, span, _)| range(&analysis.text, span))
+    definitions(analysis)
+        .into_iter()
+        .find(|(k, n, _, _)| *k == kind && *n == name)
+        .map(|(_, _, span, _)| (span.file, range(&analysis.files[span.file].text, span)))
 }
 
 // MARK: - Hover
 
 /// What the word under the cursor means: the keyword's documentation, or a
-/// named thing's own lines.
+/// named thing's own lines, from the file they are in.
 pub fn hover(analysis: &Analysis, position: Position) -> Option<(String, Range)> {
     let (index, token) = token_at(analysis, position)?;
-    let token_range = range(&analysis.text, token.span);
+    let token_range = range(analysis.text(), token.span);
 
     if let Some((kind, name)) = referent(analysis, position) {
-        let (_, _, _, line) = definitions(analysis).into_iter().find(|(k, n, _, _)| *k == kind && *n == name)?;
-        let mut shown: Vec<&str> = vec![analysis.line_text(line)];
-        for (offset, following) in analysis.lines.iter().enumerate().skip(line + 1) {
+        let (_, _, span, line) = definitions(analysis).into_iter().find(|(k, n, _, _)| *k == kind && *n == name)?;
+        let file = &analysis.files[span.file];
+        let text = |line: usize| file.text.lines().nth(line).unwrap_or("");
+        let mut shown: Vec<&str> = vec![text(line)];
+        for (offset, following) in file.lines.iter().enumerate().skip(line + 1) {
             if !following.indented && !following.tokens.is_empty() {
                 break;
             }
@@ -400,7 +554,7 @@ pub fn hover(analysis: &Analysis, position: Position) -> Option<(String, Range)>
                 shown.push("  …");
                 break;
             }
-            shown.push(analysis.line_text(offset));
+            shown.push(text(offset));
         }
         while shown.last().is_some_and(|l| l.trim().is_empty()) {
             shown.pop();
@@ -408,9 +562,9 @@ pub fn hover(analysis: &Analysis, position: Position) -> Option<(String, Range)>
         return Some((format!("```song\n{}\n```", shown.join("\n")), token_range));
     }
 
-    let line = analysis.lines.get(position.line as usize)?;
+    let line = analysis.lines().get(position.line as usize)?;
     let first = line.tokens.first()?.text.as_str();
-    let block = block_at(&analysis.lines, position.line as usize);
+    let block = block_at(analysis.lines(), position.line as usize);
     let lookup = |word: &str| -> Option<&'static str> {
         match &block {
             Block::Top => docs::find(docs::TOP_LEVEL, word).or_else(|| docs::find(docs::INSTRUMENT_KINDS, word)),
@@ -442,9 +596,11 @@ pub fn hover(analysis: &Analysis, position: Position) -> Option<(String, Range)>
 
 // MARK: - Symbols
 
-/// The blocks and sections of the song, in order.
+/// The blocks and sections of the file being looked at, in order — not the
+/// ones of the files it includes, which are theirs.
 pub fn symbols(analysis: &Analysis) -> Vec<DocumentSymbol> {
-    let headers: Vec<(usize, &Line)> = analysis.lines.iter().enumerate().filter(|(_, l)| !l.indented && !l.tokens.is_empty()).collect();
+    let lines = analysis.lines();
+    let headers: Vec<(usize, &Line)> = lines.iter().enumerate().filter(|(_, l)| !l.indented && !l.tokens.is_empty()).collect();
     let mut out = Vec::new();
     for (position, (line, header)) in headers.iter().enumerate() {
         let keyword = header.tokens[0].text.as_str();
@@ -459,8 +615,8 @@ pub fn symbols(analysis: &Analysis) -> Vec<DocumentSymbol> {
         let Some(name) = name else { continue };
         // The block runs to the line before the next header, trailing blank
         // lines left out.
-        let mut end = headers.get(position + 1).map(|(next, _)| next.saturating_sub(1)).unwrap_or(analysis.lines.len().saturating_sub(1));
-        while end > *line && analysis.lines.get(end).is_some_and(|l| l.tokens.is_empty()) {
+        let mut end = headers.get(position + 1).map(|(next, _)| next.saturating_sub(1)).unwrap_or(lines.len().saturating_sub(1));
+        while end > *line && lines.get(end).is_some_and(|l| l.tokens.is_empty()) {
             end -= 1;
         }
         let end_text = analysis.line_text(end);
@@ -483,7 +639,7 @@ pub fn symbols(analysis: &Analysis) -> Vec<DocumentSymbol> {
             tags: None,
             deprecated: None,
             range: full,
-            selection_range: range(&analysis.text, name_span),
+            selection_range: range(analysis.text(), name_span),
             children: None,
         });
     }
@@ -494,72 +650,340 @@ pub fn symbols(analysis: &Analysis) -> Vec<DocumentSymbol> {
 
 /// The notification an editor is sent after each analysis that parsed: for
 /// every line heard somewhere, the stretches of the song where, in seconds.
+/// One for each file of the song, each with that file's lines.
 pub const TIMELINE: &str = "mat/timeline";
 
-/// `mat/timeline`'s parameters, or nil when this text did not parse — lines
-/// placed from the last song that did would be drawn beside lines that have
-/// since moved.
-pub fn timeline(analysis: &Analysis, uri: &Url) -> Option<serde_json::Value> {
-    if !analysis.parsed {
+/// `mat/timeline`'s parameters for every file of the song, in file order, or
+/// nil when this text did not parse — lines placed from the last song that
+/// did would be drawn beside lines that have since moved.
+///
+/// `uris` names the song's files by index, the song first. Each message is
+/// for one file — `uri`, and `lines` in it — and says the song it is part of
+/// (`song`, `files`), and the song's length, bar and tracks, whose `file`,
+/// `instrumentFile`, and plays' `file` and `patternFile` are indexes into
+/// `files`.
+pub fn timelines(analysis: &Analysis, uris: &[Url]) -> Option<Vec<serde_json::Value>> {
+    if !analysis.parsed || uris.len() < analysis.files.len() {
         return None;
     }
     let placements = mat_core::placement::placements(analysis.song.as_ref()?);
-    let lines: Vec<serde_json::Value> = placements
-        .lines
+    // Lines 0-based, as everywhere on the wire.
+    let tracks: Vec<serde_json::Value> = placements
+        .tracks
         .iter()
-        .map(|l| {
-            let mut entry = serde_json::json!({ "line": l.line.saturating_sub(1), "spans": l.spans.iter().map(|s| [s.0, s.1]).collect::<Vec<_>>() });
-            if !l.notes.is_empty() {
-                // Columns as the protocol counts them: 0-based UTF-16 units, the
-                // note's first and the one after its last.
-                let text = analysis.text.lines().nth(l.line.saturating_sub(1)).unwrap_or("");
-                entry["passes"] = serde_json::json!(l.passes);
-                entry["notes"] = l
-                    .notes
-                    .iter()
-                    .map(|n| {
-                        let from = utf16_column(text, n.col.saturating_sub(1));
-                        let to = utf16_column(text, n.col.saturating_sub(1) + n.len);
-                        serde_json::json!([n.start, n.end, from, to])
-                    })
-                    .collect();
-            }
-            entry
+        .map(|t| {
+            serde_json::json!({
+                "name": t.name,
+                "file": t.file,
+                "line": t.line.saturating_sub(1),
+                "layer": t.layer,
+                "instrument": t.instrument,
+                "instrumentFile": t.instrument_file,
+                "instrumentLine": t.instrument_line.map(|l| l.saturating_sub(1)),
+                "plays": t.plays.iter().map(|p| serde_json::json!({
+                    "file": p.file,
+                    "line": p.line.saturating_sub(1),
+                    "pattern": p.pattern,
+                    "patternFile": p.pattern_file,
+                    "patternLine": p.pattern_line.map(|l| l.saturating_sub(1)),
+                    "start": p.start,
+                    "end": p.end,
+                    "pass": p.pass_seconds,
+                    "transpose": p.transpose,
+                })).collect::<Vec<_>>(),
+            })
         })
         .collect();
-    Some(serde_json::json!({
-        "uri": uri,
-        "seconds": placements.seconds,
-        "barSeconds": placements.bar_seconds,
-        "lines": lines,
-        // Lines 0-based, as everywhere on the wire.
-        "tracks": placements.tracks.iter().map(|t| serde_json::json!({
-            "name": t.name,
-            "line": t.line.saturating_sub(1),
-            "layer": t.layer,
-            "instrument": t.instrument,
-            "instrumentLine": t.instrument_line.map(|l| l.saturating_sub(1)),
-            "plays": t.plays.iter().map(|p| serde_json::json!({
-                "line": p.line.saturating_sub(1),
-                "pattern": p.pattern,
-                "patternLine": p.pattern_line.map(|l| l.saturating_sub(1)),
-                "start": p.start,
-                "end": p.end,
-                "pass": p.pass_seconds,
-                "transpose": p.transpose,
-            })).collect::<Vec<_>>(),
-        })).collect::<Vec<_>>(),
-    }))
+    let files = &uris[..analysis.files.len()];
+    let messages = analysis
+        .files
+        .iter()
+        .enumerate()
+        .map(|(file, source)| {
+            let lines: Vec<serde_json::Value> = placements
+                .lines
+                .iter()
+                .filter(|l| l.file == file)
+                .map(|l| {
+                    let mut entry = serde_json::json!({ "line": l.line.saturating_sub(1), "spans": l.spans.iter().map(|s| [s.0, s.1]).collect::<Vec<_>>() });
+                    if !l.notes.is_empty() {
+                        // Columns as the protocol counts them: 0-based UTF-16 units, the
+                        // note's first and the one after its last.
+                        let text = source.text.lines().nth(l.line.saturating_sub(1)).unwrap_or("");
+                        entry["passes"] = serde_json::json!(l.passes);
+                        entry["notes"] = l
+                            .notes
+                            .iter()
+                            .map(|n| {
+                                let from = utf16_column(text, n.col.saturating_sub(1));
+                                let to = utf16_column(text, n.col.saturating_sub(1) + n.len);
+                                serde_json::json!([n.start, n.end, from, to])
+                            })
+                            .collect();
+                    }
+                    entry
+                })
+                .collect();
+            serde_json::json!({
+                "uri": files[file],
+                "song": files[0],
+                "files": files,
+                "seconds": placements.seconds,
+                "barSeconds": placements.bar_seconds,
+                "lines": lines,
+                "tracks": tracks,
+            })
+        })
+        .collect();
+    Some(messages)
 }
 
 // MARK: - The server
+
+/// A song the server has analysed, and the URI of each of its files.
+struct Analysed {
+    analysis: Analysis,
+    uris: Vec<Url>,
+}
+
+/// The open documents and the songs they are in, answering the protocol's
+/// notifications with the notifications to send back, and its requests.
+pub struct Server {
+    /// Folders to look for a song in, for an included file opened on its own.
+    workspace: Vec<PathBuf>,
+    /// The text of each open document.
+    open: HashMap<Url, String>,
+    /// Every song analysed, by its own URI.
+    songs: HashMap<Url, Analysed>,
+    /// The song each open document is analysed in — its own URI when it is one.
+    home: HashMap<Url, Url>,
+}
+
+impl Server {
+    pub fn new(workspace: Vec<PathBuf>) -> Server {
+        Server { workspace, open: HashMap::new(), songs: HashMap::new(), home: HashMap::new() }
+    }
+
+    /// What to send after a notification from the editor.
+    pub fn notification(&mut self, notification: &Notification) -> Vec<Notification> {
+        if let Some((uri, text)) = document_change(notification) {
+            return self.changed(uri, text);
+        }
+        if notification.method == DidCloseTextDocument::METHOD
+            && let Ok(params) = serde_json::from_value::<lsp_types::DidCloseTextDocumentParams>(notification.params.clone())
+        {
+            return self.closed(params.text_document.uri);
+        }
+        Vec::new()
+    }
+
+    fn changed(&mut self, uri: Url, text: String) -> Vec<Notification> {
+        self.open.insert(uri.clone(), text);
+        let mut songs: Vec<Url> = self.songs.iter().filter(|(_, s)| s.uris.contains(&uri)).map(|(song, _)| song.clone()).collect();
+        if songs.is_empty() {
+            songs.push(self.find_song(&uri));
+        }
+        songs.sort();
+        let mut out = Vec::new();
+        for song in songs {
+            self.analyse(&song, &mut out);
+        }
+        out
+    }
+
+    fn closed(&mut self, uri: Url) -> Vec<Notification> {
+        let mut out = Vec::new();
+        self.open.remove(&uri);
+        self.home.remove(&uri);
+        let mut songs: Vec<Url> = self.songs.iter().filter(|(_, s)| s.uris.contains(&uri)).map(|(song, _)| song.clone()).collect();
+        songs.sort();
+        if songs.is_empty() {
+            out.push(publish(uri, Vec::new()));
+        }
+        for song in songs {
+            if self.home.values().any(|home| *home == song) {
+                // Still open elsewhere: the closed file is read from the disk now.
+                self.analyse(&song, &mut out);
+            } else {
+                self.forget(&song, &mut out);
+            }
+        }
+        out
+    }
+
+    /// Reads a file of a song: an open document's text, or the disk's.
+    fn read(&self, path: &Path) -> std::io::Result<String> {
+        let wanted = normalize(path);
+        for (uri, text) in &self.open {
+            if uri.to_file_path().is_ok_and(|p| normalize(&p) == wanted) {
+                return Ok(text.clone());
+            }
+        }
+        std::fs::read_to_string(path)
+    }
+
+    /// The URI of a file of a song: an open document's, when one is that file.
+    fn uri_of(&self, path: &Path) -> Url {
+        let wanted = normalize(path);
+        self.open
+            .keys()
+            .find(|uri| uri.to_file_path().is_ok_and(|p| normalize(&p) == wanted))
+            .cloned()
+            .or_else(|| Url::from_file_path(path).ok())
+            .unwrap_or_else(|| Url::parse("file:///").expect("a URL"))
+    }
+
+    /// The song a document is analysed in: a song that includes it — an open
+    /// one first, else one in the workspace, and of several the one no other
+    /// includes — or the document itself.
+    fn find_song(&self, uri: &Url) -> Url {
+        let Ok(path) = uri.to_file_path() else { return uri.clone() };
+        let wanted = identity(&normalize(&path));
+        // The identities of a candidate's files, when it includes the document.
+        let includes = |song: &Path, text: &str| -> Option<Vec<PathBuf>> {
+            if !text.contains("include") {
+                return None;
+            }
+            let parsed = mat_core::parse_with(text, song, &|p| self.read(p));
+            let files: Vec<PathBuf> = parsed.sources.iter().map(|s| identity(&s.path)).collect();
+            files[1..].contains(&wanted).then_some(files)
+        };
+        let mut candidates: Vec<(Url, Vec<PathBuf>)> = self
+            .open
+            .iter()
+            .filter(|(other, _)| *other != uri)
+            .filter_map(|(other, text)| Some((other.clone(), includes(&other.to_file_path().ok()?, text)?)))
+            .collect();
+        if candidates.is_empty() {
+            let mut found = Vec::new();
+            for folder in &self.workspace {
+                song_files(folder, 16, &mut found);
+            }
+            found.sort();
+            found.dedup();
+            for file in found {
+                if identity(&file) == wanted {
+                    continue;
+                }
+                let Ok(text) = self.read(&file) else { continue };
+                if let Some(files) = includes(&file, &text) {
+                    candidates.push((self.uri_of(&file), files));
+                }
+            }
+        }
+        candidates.sort_by(|a, b| a.0.cmp(&b.0));
+        let topmost = candidates.iter().find(|(candidate, _)| {
+            let own = candidate.to_file_path().map(|p| identity(&normalize(&p))).ok();
+            !candidates.iter().any(|(other, files)| other != candidate && own.as_ref().is_some_and(|own| files[1..].contains(own)))
+        });
+        topmost.or(candidates.first()).map_or_else(|| uri.clone(), |(song, _)| song.clone())
+    }
+
+    /// Analyses a song and says so: diagnostics for each of its files, and a
+    /// timeline for each when it parses.
+    fn analyse(&mut self, song: &Url, out: &mut Vec<Notification>) {
+        let text = match self.open.get(song) {
+            Some(text) => text.clone(),
+            None => match song.to_file_path().ok().and_then(|p| std::fs::read_to_string(p).ok()) {
+                Some(text) => text,
+                None => return self.forget(song, out),
+            },
+        };
+        let previous = self.songs.remove(song);
+        let previous_song = previous.as_ref().and_then(|p| p.analysis.song.clone());
+        let analysis = match song.to_file_path() {
+            Ok(path) => Analysis::of_song(&text, &path, &|p| self.read(p), previous_song),
+            Err(_) => Analysis::of(&text, previous_song),
+        };
+        let uris: Vec<Url> = analysis.files.iter().enumerate().map(|(i, f)| if i == 0 { song.clone() } else { self.uri_of(&f.path) }).collect();
+        for (file, uri) in uris.iter().enumerate() {
+            out.push(publish(uri.clone(), diagnostics_in(&analysis, file)));
+        }
+        if let Some(previous) = &previous {
+            for gone in previous.uris.iter().filter(|u| !uris.contains(u) && !self.songs.values().any(|s| s.uris.contains(u))) {
+                out.push(publish(gone.clone(), Vec::new()));
+            }
+        }
+        if let Some(messages) = timelines(&analysis, &uris) {
+            out.extend(messages.into_iter().map(|m| Notification::new(TIMELINE.into(), m)));
+        }
+        // An open file of this song is analysed in it, and one that was a
+        // song of its own is not one any more.
+        for uri in &uris {
+            if self.open.contains_key(uri) && self.home.insert(uri.clone(), song.clone()).is_some_and(|old| old == *uri && uri != song) {
+                self.songs.remove(uri);
+            }
+        }
+        // A document this song no longer includes finds its song again.
+        let mut orphans: Vec<Url> = self.home.iter().filter(|(doc, home)| *home == song && !uris.contains(doc)).map(|(doc, _)| doc.clone()).collect();
+        orphans.sort();
+        self.songs.insert(song.clone(), Analysed { analysis, uris });
+        for orphan in orphans {
+            self.home.remove(&orphan);
+            let found = self.find_song(&orphan);
+            self.analyse(&found, out);
+        }
+    }
+
+    /// Stops analysing a song, and clears the diagnostics of its files that
+    /// no other song has.
+    fn forget(&mut self, song: &Url, out: &mut Vec<Notification>) {
+        if let Some(gone) = self.songs.remove(song) {
+            for uri in gone.uris {
+                if !self.songs.values().any(|s| s.uris.contains(&uri)) {
+                    out.push(publish(uri, Vec::new()));
+                }
+            }
+        }
+    }
+
+    /// The analysis of the song an open document is in, looked at from that document.
+    fn view(&mut self, uri: &Url) -> Option<(&Analysis, &[Url])> {
+        let home = self.home.get(uri)?;
+        let analysed = self.songs.get_mut(home)?;
+        analysed.analysis.file = analysed.uris.iter().position(|u| u == uri)?;
+        Some((&analysed.analysis, &analysed.uris))
+    }
+
+    /// The answer to a request.
+    pub fn answer(&mut self, request: Request) -> Response {
+        let id = request.id.clone();
+        let result: Option<serde_json::Value> = match request.method.as_str() {
+            Completion::METHOD => serde_json::from_value::<lsp_types::CompletionParams>(request.params).ok().and_then(|p| {
+                let (analysis, _) = self.view(&p.text_document_position.text_document.uri)?;
+                let items = completions(analysis, p.text_document_position.position);
+                serde_json::to_value(CompletionResponse::Array(items)).ok()
+            }),
+            HoverRequest::METHOD => serde_json::from_value::<lsp_types::HoverParams>(request.params).ok().and_then(|p| {
+                let (analysis, _) = self.view(&p.text_document_position_params.text_document.uri)?;
+                let (value, range) = hover(analysis, p.text_document_position_params.position)?;
+                serde_json::to_value(Hover { contents: HoverContents::Markup(MarkupContent { kind: MarkupKind::Markdown, value }), range: Some(range) }).ok()
+            }),
+            GotoDefinition::METHOD => serde_json::from_value::<lsp_types::GotoDefinitionParams>(request.params).ok().and_then(|p| {
+                let (analysis, uris) = self.view(&p.text_document_position_params.text_document.uri)?;
+                let (file, range) = definition(analysis, p.text_document_position_params.position)?;
+                serde_json::to_value(GotoDefinitionResponse::Scalar(Location { uri: uris.get(file)?.clone(), range })).ok()
+            }),
+            DocumentSymbolRequest::METHOD => serde_json::from_value::<lsp_types::DocumentSymbolParams>(request.params).ok().and_then(|p| {
+                let (analysis, _) = self.view(&p.text_document.uri)?;
+                serde_json::to_value(DocumentSymbolResponse::Nested(symbols(analysis))).ok()
+            }),
+            _ => None,
+        };
+        Response::new_ok(id, result.unwrap_or(serde_json::Value::Null))
+    }
+}
+
+fn publish(uri: Url, diagnostics: Vec<Diagnostic>) -> Notification {
+    Notification::new(PublishDiagnostics::METHOD.into(), PublishDiagnosticsParams { uri, diagnostics, version: None })
+}
 
 /// Serves over stdin and stdout until the client says shutdown.
 pub fn run_stdio() -> Result<(), Box<dyn Error + Sync + Send>> {
     let (connection, io_threads) = Connection::stdio();
     let capabilities = ServerCapabilities {
         text_document_sync: Some(TextDocumentSyncCapability::Kind(TextDocumentSyncKind::FULL)),
-        completion_provider: Some(CompletionOptions { trigger_characters: Some(vec![" ".into()]), ..Default::default() }),
+        completion_provider: Some(CompletionOptions { trigger_characters: Some(vec![" ".into(), "\"".into(), "/".into()]), ..Default::default() }),
         hover_provider: Some(HoverProviderCapability::Simple(true)),
         definition_provider: Some(OneOf::Left(true)),
         document_symbol_provider: Some(OneOf::Left(true)),
@@ -569,35 +993,27 @@ pub fn run_stdio() -> Result<(), Box<dyn Error + Sync + Send>> {
         ..Default::default()
     };
     let init = connection.initialize(serde_json::to_value(capabilities)?)?;
-    let _params: InitializeParams = serde_json::from_value(init)?;
+    let params: InitializeParams = serde_json::from_value(init)?;
+    let mut workspace: Vec<PathBuf> = params.workspace_folders.unwrap_or_default().iter().filter_map(|f| f.uri.to_file_path().ok()).collect();
+    if let Some(root) = params.root_uri.and_then(|u| u.to_file_path().ok())
+        && !workspace.contains(&root)
+    {
+        workspace.push(root);
+    }
 
-    let mut documents: HashMap<Url, Analysis> = HashMap::new();
+    let mut server = Server::new(workspace);
     for message in &connection.receiver {
         match message {
             Message::Request(request) => {
                 if connection.handle_shutdown(&request)? {
                     break;
                 }
-                let response = answer(&documents, request);
+                let response = server.answer(request);
                 connection.sender.send(Message::Response(response))?;
             }
             Message::Notification(notification) => {
-                if let Some((url, text)) = document_change(&notification) {
-                    let previous = documents.remove(&url).and_then(|a| a.song);
-                    let analysis = Analysis::of(&text, previous);
-                    let params = PublishDiagnosticsParams { uri: url.clone(), diagnostics: diagnostics(&analysis), version: None };
-                    let placed = timeline(&analysis, &url);
-                    documents.insert(url, analysis);
-                    connection.sender.send(Message::Notification(Notification::new(PublishDiagnostics::METHOD.into(), params)))?;
-                    if let Some(placed) = placed {
-                        connection.sender.send(Message::Notification(Notification::new(TIMELINE.into(), placed)))?;
-                    }
-                } else if notification.method == DidCloseTextDocument::METHOD {
-                    if let Ok(params) = serde_json::from_value::<lsp_types::DidCloseTextDocumentParams>(notification.params) {
-                        documents.remove(&params.text_document.uri);
-                        let params = PublishDiagnosticsParams { uri: params.text_document.uri, diagnostics: Vec::new(), version: None };
-                        connection.sender.send(Message::Notification(Notification::new(PublishDiagnostics::METHOD.into(), params)))?;
-                    }
+                for outgoing in server.notification(&notification) {
+                    connection.sender.send(Message::Notification(outgoing))?;
                 }
             }
             Message::Response(_) => {}
@@ -624,34 +1040,6 @@ fn document_change(notification: &Notification) -> Option<(Url, String)> {
         return Some((params.text_document.uri, text));
     }
     None
-}
-
-fn answer(documents: &HashMap<Url, Analysis>, request: Request) -> Response {
-    let id = request.id.clone();
-    let result: Option<serde_json::Value> = match request.method.as_str() {
-        Completion::METHOD => serde_json::from_value::<lsp_types::CompletionParams>(request.params).ok().and_then(|p| {
-            let analysis = documents.get(&p.text_document_position.text_document.uri)?;
-            let items = completions(analysis, p.text_document_position.position);
-            serde_json::to_value(CompletionResponse::Array(items)).ok()
-        }),
-        HoverRequest::METHOD => serde_json::from_value::<lsp_types::HoverParams>(request.params).ok().and_then(|p| {
-            let analysis = documents.get(&p.text_document_position_params.text_document.uri)?;
-            let (value, range) = hover(analysis, p.text_document_position_params.position)?;
-            serde_json::to_value(Hover { contents: HoverContents::Markup(MarkupContent { kind: MarkupKind::Markdown, value }), range: Some(range) }).ok()
-        }),
-        GotoDefinition::METHOD => serde_json::from_value::<lsp_types::GotoDefinitionParams>(request.params).ok().and_then(|p| {
-            let uri = p.text_document_position_params.text_document.uri;
-            let analysis = documents.get(&uri)?;
-            let range = definition(analysis, p.text_document_position_params.position)?;
-            serde_json::to_value(GotoDefinitionResponse::Scalar(Location { uri, range })).ok()
-        }),
-        DocumentSymbolRequest::METHOD => serde_json::from_value::<lsp_types::DocumentSymbolParams>(request.params).ok().and_then(|p| {
-            let analysis = documents.get(&p.text_document.uri)?;
-            serde_json::to_value(DocumentSymbolResponse::Nested(symbols(analysis))).ok()
-        }),
-        _ => None,
-    };
-    Response::new_ok(id, result.unwrap_or(serde_json::Value::Null))
 }
 
 #[cfg(test)]
@@ -699,13 +1087,13 @@ master
     #[test]
     fn the_blocks_are_found_from_the_header_above() {
         let a = analysis();
-        assert_eq!(block_at(&a.lines, 0), Block::Top);
-        assert_eq!(block_at(&a.lines, 4), Block::Instrument { kind: Some("synth".into()) });
-        assert_eq!(block_at(&a.lines, 6), Block::Instrument { kind: Some("synth".into()) }, "a blank line is still in the block");
-        assert_eq!(block_at(&a.lines, 11), Block::Pattern);
-        assert_eq!(block_at(&a.lines, 17), Block::Track);
-        assert_eq!(block_at(&a.lines, 25), Block::Track, "the blank line before a header still belongs to the block above");
-        assert_eq!(block_at(&a.lines, 27), Block::Master);
+        assert_eq!(block_at(a.lines(), 0), Block::Top);
+        assert_eq!(block_at(a.lines(), 4), Block::Instrument { kind: Some("synth".into()) });
+        assert_eq!(block_at(a.lines(), 6), Block::Instrument { kind: Some("synth".into()) }, "a blank line is still in the block");
+        assert_eq!(block_at(a.lines(), 11), Block::Pattern);
+        assert_eq!(block_at(a.lines(), 17), Block::Track);
+        assert_eq!(block_at(a.lines(), 25), Block::Track, "the blank line before a header still belongs to the block above");
+        assert_eq!(block_at(a.lines(), 27), Block::Master);
     }
 
     #[test]
@@ -780,9 +1168,9 @@ master
     fn a_name_goes_to_its_definition() {
         let a = analysis();
         // `  instrument lead` is line 17: the name starts at character 13.
-        let target = definition(&a, Position::new(17, 14)).expect("lead is defined");
-        assert_eq!(target.start, Position::new(3, 11));
-        let pattern = definition(&a, Position::new(19, 8)).expect("verse is defined");
+        let (file, target) = definition(&a, Position::new(17, 14)).expect("lead is defined");
+        assert_eq!((file, target.start), (0, Position::new(3, 11)));
+        let (_, pattern) = definition(&a, Position::new(19, 8)).expect("verse is defined");
         assert_eq!(pattern.start.line, 13);
         assert!(definition(&a, Position::new(18, 4)).is_none(), "a setting is not a reference");
     }
@@ -834,7 +1222,8 @@ master
     fn the_timeline_places_lines_and_is_withheld_when_the_text_does_not_parse() {
         let url = Url::parse("file:///tmp/test.song").unwrap();
         let a = analysis();
-        let placed = timeline(&a, &url).expect("the song parses");
+        let placed = timelines(&a, std::slice::from_ref(&url)).expect("the song parses").remove(0);
+        assert_eq!((placed["uri"].clone(), placed["song"].clone(), placed["files"].clone()), (serde_json::json!(url), serde_json::json!(url), serde_json::json!([url])));
         let lines = placed["lines"].as_array().unwrap();
         // `  play verse x2` is line 19 (0-based): the verse is one bar, twice.
         let play = lines.iter().find(|l| l["line"] == 19).expect("the play line is placed");
@@ -849,7 +1238,7 @@ master
         let melody = placed["tracks"].as_array().unwrap().iter().find(|t| t["name"] == "melody").expect("the melody is a track");
         assert!(melody["plays"].as_array().unwrap().iter().any(|p| p["line"] == 19 && p["pattern"] == "verse"));
         let broken = Analysis::of(&SONG.replace("track melody", "trak melody"), a.song.clone());
-        assert!(timeline(&broken, &url).is_none());
+        assert!(timelines(&broken, &[url]).is_none());
     }
 
     #[test]
@@ -857,7 +1246,247 @@ master
         assert_eq!(char_index("äbc", 1), 1);
         assert_eq!(char_index("𝄞bc", 2), 1);
         assert_eq!(utf16_column("𝄞bc", 1), 2);
-        let r = range("  𝄞 x", Span { line: 1, col: 5, len: 1 });
+        let r = range("  𝄞 x", Span { file: 0, line: 1, col: 5, len: 1 });
         assert_eq!(r.start.character, 5);
+    }
+
+    // MARK: - Songs of several files
+
+    /// A folder of its own under the temporary directory, removed when dropped.
+    struct Folder(PathBuf);
+
+    impl Folder {
+        fn new(name: &str) -> Folder {
+            let dir = std::env::temp_dir().join(format!("mat-lsp-{name}-{}", std::process::id()));
+            let _ = std::fs::remove_dir_all(&dir);
+            std::fs::create_dir_all(&dir).unwrap();
+            // The disk's own spelling: /tmp is /private/tmp on macOS.
+            Folder(std::fs::canonicalize(&dir).unwrap())
+        }
+
+        fn write(&self, name: &str, text: &str) -> Url {
+            let path = self.0.join(name);
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            std::fs::write(&path, text).unwrap();
+            Url::from_file_path(path).unwrap()
+        }
+    }
+
+    impl Drop for Folder {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+
+    const ROOT: &str = "tempo 120
+include \"kit.song\"
+
+track melody
+  instrument lead
+  play verse x2
+";
+
+    const KIT: &str = "# a shared kit
+instrument lead synth
+  osc saw
+
+pattern verse
+  C4:h D4 |
+";
+
+    fn open(uri: &Url, text: &str) -> Notification {
+        Notification::new(
+            DidOpenTextDocument::METHOD.into(),
+            lsp_types::DidOpenTextDocumentParams { text_document: lsp_types::TextDocumentItem { uri: uri.clone(), language_id: "song".into(), version: 1, text: text.into() } },
+        )
+    }
+
+    fn change(uri: &Url, text: &str) -> Notification {
+        Notification::new(
+            DidChangeTextDocument::METHOD.into(),
+            lsp_types::DidChangeTextDocumentParams {
+                text_document: lsp_types::VersionedTextDocumentIdentifier { uri: uri.clone(), version: 2 },
+                content_changes: vec![lsp_types::TextDocumentContentChangeEvent { range: None, range_length: None, text: text.into() }],
+            },
+        )
+    }
+
+    /// The diagnostics published for a file, the last time they were.
+    fn published(sent: &[Notification], uri: &Url) -> Option<Vec<Diagnostic>> {
+        sent.iter()
+            .rev()
+            .filter(|n| n.method == PublishDiagnostics::METHOD)
+            .filter_map(|n| serde_json::from_value::<PublishDiagnosticsParams>(n.params.clone()).ok())
+            .find(|p| p.uri == *uri)
+            .map(|p| p.diagnostics)
+    }
+
+    fn timelines_sent(sent: &[Notification]) -> Vec<serde_json::Value> {
+        sent.iter().filter(|n| n.method == TIMELINE).map(|n| n.params.clone()).collect()
+    }
+
+    #[test]
+    fn a_problem_in_an_included_file_is_published_to_that_file() {
+        let folder = Folder::new("diagnostics");
+        let song = folder.write("song.song", ROOT);
+        let kit = folder.write("kit.song", &KIT.replace("osc saw", "osc sawz"));
+        let mut server = Server::new(vec![folder.0.clone()]);
+        let sent = server.notification(&open(&song, ROOT));
+        assert_eq!(published(&sent, &song).expect("the song's own"), Vec::new());
+        let in_kit = published(&sent, &kit).expect("the kit's, though it is not open");
+        assert_eq!(in_kit.len(), 1, "{in_kit:?}");
+        assert_eq!(in_kit[0].range.start, Position::new(2, 6));
+        assert!(in_kit[0].message.contains("unknown waveform"));
+        assert!(timelines_sent(&sent).is_empty(), "a song that does not parse is not placed");
+
+        // The kit opened and fixed, unsaved: the song reads the open text, and
+        // the kit is told it has no problems any more.
+        let sent = server.notification(&open(&kit, KIT));
+        assert_eq!(published(&sent, &kit).expect("the kit's again"), Vec::new());
+        assert_eq!(timelines_sent(&sent).len(), 2);
+    }
+
+    #[test]
+    fn each_file_of_a_song_is_sent_its_own_timeline() {
+        let folder = Folder::new("timeline");
+        let song = folder.write("song.song", ROOT);
+        let kit = folder.write("kit.song", KIT);
+        let mut server = Server::new(Vec::new());
+        let sent = timelines_sent(&server.notification(&open(&song, ROOT)));
+        assert_eq!(sent.len(), 2, "one for the song and one for the kit");
+        for message in &sent {
+            assert_eq!(message["song"], serde_json::json!(song));
+            assert_eq!(message["files"], serde_json::json!([song, kit]));
+            assert_eq!(message["barSeconds"], 2.0);
+            assert_eq!(message["tracks"], sent[0]["tracks"], "every file is told the whole song's tracks");
+        }
+        let (root, included) = (&sent[0], &sent[1]);
+        assert_eq!(root["uri"], serde_json::json!(song));
+        assert_eq!(included["uri"], serde_json::json!(kit));
+        let lines = |message: &serde_json::Value| message["lines"].as_array().unwrap().iter().map(|l| l["line"].as_u64().unwrap()).collect::<Vec<_>>();
+        // The song: the track's header and its play step; the kit: the
+        // instrument's header, the pattern's and its line of notes.
+        assert_eq!(lines(root), [3, 5]);
+        assert_eq!(lines(included), [1, 4, 5]);
+        assert!(included["lines"][2]["notes"].as_array().is_some_and(|n| n.len() == 2));
+        let melody = &root["tracks"][0];
+        assert_eq!((melody["file"].as_u64(), melody["line"].as_u64()), (Some(0), Some(3)));
+        assert_eq!((melody["instrumentFile"].as_u64(), melody["instrumentLine"].as_u64()), (Some(1), Some(1)));
+        let play = &melody["plays"][0];
+        assert_eq!((play["file"].as_u64(), play["line"].as_u64(), play["patternFile"].as_u64(), play["patternLine"].as_u64()), (Some(0), Some(5), Some(1), Some(4)));
+    }
+
+    #[test]
+    fn a_name_goes_to_its_definition_in_another_file() {
+        let folder = Folder::new("definition");
+        let song = folder.write("song.song", ROOT);
+        let kit = folder.write("kit.song", KIT);
+        let mut server = Server::new(Vec::new());
+        server.notification(&open(&song, ROOT));
+        let request = |line: u32, character: u32| {
+            Request::new(
+                1.into(),
+                GotoDefinition::METHOD.into(),
+                lsp_types::GotoDefinitionParams {
+                    text_document_position_params: lsp_types::TextDocumentPositionParams {
+                        text_document: lsp_types::TextDocumentIdentifier { uri: song.clone() },
+                        position: Position::new(line, character),
+                    },
+                    work_done_progress_params: Default::default(),
+                    partial_result_params: Default::default(),
+                },
+            )
+        };
+        let location: Location = serde_json::from_value(server.answer(request(4, 14)).result.unwrap()).unwrap();
+        assert_eq!(location.uri, kit);
+        assert_eq!(location.range.start, Position::new(1, 11));
+        let location: Location = serde_json::from_value(server.answer(request(1, 11)).result.unwrap()).unwrap();
+        assert_eq!((location.uri, location.range.start), (kit, Position::new(0, 0)), "an include goes to its file");
+    }
+
+    #[test]
+    fn names_hover_and_symbols_across_files() {
+        let loader = |path: &Path| if path.ends_with("kit.song") { Ok(KIT.to_string()) } else { Err(std::io::ErrorKind::NotFound.into()) };
+        let a = Analysis::of_song(ROOT, Path::new("/songs/song.song"), &loader, None);
+        assert!(a.diagnostics.is_empty(), "{:?}", a.diagnostics);
+        let typed = Analysis::of_song(&ROOT.replace("  play verse x2", "  play "), Path::new("/songs/song.song"), &loader, a.song.clone());
+        assert_eq!(labels(&completions(&typed, Position::new(5, 7))), ["verse", "all"], "the kit's pattern completes in the song");
+        let (text, _) = hover(&a, Position::new(4, 14)).expect("lead is defined in the kit");
+        assert!(text.contains("instrument lead synth\n  osc saw"), "{text}");
+        let names = |a: &Analysis| symbols(a).iter().map(|s| s.name.clone()).collect::<Vec<_>>();
+        assert_eq!(names(&a), ["melody"], "the song's own blocks");
+        let kit = a.clone().at(1);
+        assert_eq!(names(&kit), ["lead", "verse"]);
+        assert_eq!(kit.text(), KIT);
+        assert!(definition(&kit, Position::new(1, 12)).is_none(), "a header is not a reference");
+    }
+
+    #[test]
+    fn include_completes_as_a_keyword_and_its_paths() {
+        let folder = Folder::new("paths");
+        folder.write("song.song", ROOT);
+        folder.write("kit.song", KIT);
+        folder.write("parts/verse.song", "");
+        folder.write("target/built.song", "");
+        folder.write(".hidden/secret.song", "");
+        let top = completions(&Analysis::of("inc", None), Position::new(0, 3));
+        assert_eq!(labels(&top), ["include"]);
+        let text = "tempo 120\ninclude \"\n";
+        let a = Analysis::of_song(text, &folder.0.join("song.song"), &|p| std::fs::read_to_string(p), None);
+        let items = completions(&a, Position::new(1, 9));
+        assert_eq!(labels(&items), ["kit.song", "parts/verse.song"], "not the song itself, hidden folders or target");
+        let Some(CompletionTextEdit::Edit(edit)) = &items[1].text_edit else { panic!("an edit") };
+        assert_eq!((edit.range.start, edit.range.end, edit.new_text.as_str()), (Position::new(1, 8), Position::new(1, 9), "\"parts/verse.song\""));
+        let typed = Analysis::of_song("include \"pa\"", &folder.0.join("song.song"), &|p| std::fs::read_to_string(p), None);
+        let items = completions(&typed, Position::new(0, 11));
+        assert_eq!(labels(&items), ["parts/verse.song"]);
+        let Some(CompletionTextEdit::Edit(edit)) = &items[0].text_edit else { panic!("an edit") };
+        assert_eq!(edit.range.end, Position::new(0, 12), "the closing quote is replaced too");
+    }
+
+    #[test]
+    fn an_included_file_opened_alone_is_analysed_through_a_song_that_includes_it() {
+        let folder = Folder::new("alone");
+        let song = folder.write("songs/song.song", &ROOT.replace("kit.song", "../kits/kit.song"));
+        let kit = folder.write("kits/kit.song", KIT);
+        folder.write("target/copy.song", &ROOT.replace("kit.song", "../kits/kit.song"));
+        folder.write("other.song", "tempo 90\n");
+        let mut server = Server::new(vec![folder.0.clone()]);
+        let sent = server.notification(&open(&kit, KIT));
+        assert_eq!(published(&sent, &song), Some(Vec::new()), "the song found in the workspace is analysed");
+        let placed = timelines_sent(&sent);
+        let for_kit = placed.iter().find(|m| m["uri"] == serde_json::json!(kit)).expect("the kit is placed in the song");
+        assert_eq!(for_kit["song"], serde_json::json!(song));
+        assert_eq!(for_kit["lines"].as_array().unwrap().len(), 3);
+
+        // An edit to the kit re-analyses the song it is in.
+        let sent = server.notification(&change(&kit, &KIT.replace("osc saw", "osc sawz")));
+        assert_eq!(published(&sent, &kit).map(|d| d.len()), Some(1));
+        assert_eq!(published(&sent, &song), Some(Vec::new()));
+
+        // A file no song includes is a song of its own.
+        let lone = folder.write("lone.song", "tempo 100\ninstrument a synth\n");
+        let sent = server.notification(&open(&lone, "tempo 100\ninstrument a synth\n"));
+        let placed = timelines_sent(&sent);
+        assert_eq!(placed.len(), 1);
+        assert_eq!((placed[0]["uri"].clone(), placed[0]["song"].clone()), (serde_json::json!(lone), serde_json::json!(lone)));
+    }
+
+    #[test]
+    fn a_file_open_on_its_own_joins_the_song_that_starts_including_it() {
+        let folder = Folder::new("joins");
+        let song = folder.write("song.song", "tempo 120\n");
+        let kit = folder.write("kit.song", KIT);
+        let mut server = Server::new(Vec::new());
+        server.notification(&open(&kit, KIT));
+        server.notification(&open(&song, "tempo 120\n"));
+        let sent = server.notification(&change(&song, ROOT));
+        let placed = timelines_sent(&sent);
+        assert_eq!(placed.len(), 2);
+        assert!(placed.iter().all(|m| m["song"] == serde_json::json!(song)));
+        // And leaves it again: the kit is its own song once more.
+        let sent = server.notification(&change(&song, "tempo 120\n"));
+        let placed = timelines_sent(&sent);
+        assert!(placed.iter().any(|m| m["uri"] == serde_json::json!(kit) && m["song"] == serde_json::json!(kit)), "{placed:?}");
     }
 }

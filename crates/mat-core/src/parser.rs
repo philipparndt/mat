@@ -1,13 +1,14 @@
 //! Parses `.song` files into a [`Song`]. See `docs/FORMAT.md` for the language.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
+use std::path::{Component, Path, PathBuf};
 
 use crate::diag::{Diagnostic, Span, did_you_mean, has_errors};
-use crate::lexer::{Line, Token, lex};
+use crate::lexer::{Line, Token, lex_file};
 use crate::presets;
 use crate::model::*;
 
-const TOP_LEVEL: &[&str] = &["title", "tempo", "meter", "swing", "seed", "section", "instrument", "pattern", "track", "master"];
+const TOP_LEVEL: &[&str] = &["title", "tempo", "meter", "swing", "seed", "section", "include", "instrument", "pattern", "track", "master"];
 const EPS: f64 = 1e-9;
 
 struct Block<'a> {
@@ -15,16 +16,187 @@ struct Block<'a> {
     body: Vec<&'a Line>,
 }
 
+/// A file a song was read from.
+#[derive(Debug, Clone)]
+pub struct Source {
+    /// Absolute, with `.` and `..` taken out, but symbolic links left as they
+    /// are: the path an editor opened. Empty for a song parsed from text alone.
+    pub path: PathBuf,
+    pub text: String,
+}
+
+/// What parsing a song and the files it includes gives.
+#[derive(Debug)]
+pub struct Parsed {
+    /// The song, when there are no errors in any of its files.
+    pub song: Option<Song>,
+    /// Every file's, each span saying which file by its index in `sources`.
+    pub diagnostics: Vec<Diagnostic>,
+    /// The song first, then each file it includes in the order they were
+    /// first read. Filled whether or not the song parses.
+    pub sources: Vec<Source>,
+}
+
+/// Reads a file for an `include`.
+pub type Loader<'a> = &'a dyn Fn(&Path) -> std::io::Result<String>;
+
+/// Parses a song from text alone. An `include` in it is an error: there is no
+/// directory to find the file in.
 pub fn parse(source: &str) -> (Option<Song>, Vec<Diagnostic>) {
+    let parsed = parse_sources(source, None, &|_| Err(std::io::Error::other("no path")));
+    (parsed.song, parsed.diagnostics)
+}
+
+/// Reads and parses the song at `path` and every file it includes, from disk.
+/// An error when the song itself cannot be read; a file it includes that
+/// cannot be read is a diagnostic on the `include` line.
+pub fn parse_file(path: &Path) -> std::io::Result<Parsed> {
+    let text = std::fs::read_to_string(path)?;
+    Ok(parse_with(&text, path, &|p| std::fs::read_to_string(p)))
+}
+
+/// Parses `text` as the song at `path`, reading the files it includes with
+/// `loader` — for an editor, which has files open that are not saved.
+pub fn parse_with(text: &str, path: &Path, loader: Loader) -> Parsed {
+    parse_sources(text, Some(path), loader)
+}
+
+/// `path` made absolute, with `.` and `..` taken out without asking the disk.
+pub fn normalize(path: &Path) -> PathBuf {
+    let absolute = std::path::absolute(path).unwrap_or_else(|_| path.to_path_buf());
+    let mut out = PathBuf::new();
+    for component in absolute.components() {
+        match component {
+            Component::CurDir => {}
+            Component::ParentDir => {
+                out.pop();
+            }
+            other => out.push(other.as_os_str()),
+        }
+    }
+    out
+}
+
+/// What a path is the same file as: the disk's answer when it has one, so a
+/// file reached through a link or by two spellings is read once.
+pub fn identity(path: &Path) -> PathBuf {
+    std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf())
+}
+
+/// The files of a song, read and lexed, and the order their lines are taken
+/// in: each included file's lines where its `include` line is.
+struct Loaded {
+    sources: Vec<Source>,
+    lines: Vec<Vec<Line>>,
+    /// (file, line) pairs, in the order the song reads them.
+    order: Vec<(usize, usize)>,
+}
+
+struct Walk<'a> {
+    loader: Loader<'a>,
+    has_path: bool,
+    /// Every file read so far, by identity.
+    seen: HashSet<PathBuf>,
+    /// The files being read, the song first: an include of one is a cycle.
+    stack: Vec<PathBuf>,
+}
+
+fn load(text: &str, path: Option<&Path>, loader: Loader, diags: &mut Vec<Diagnostic>) -> Loaded {
+    let root = path.map(normalize).unwrap_or_default();
+    let key = identity(&root);
+    let mut loaded = Loaded { sources: Vec::new(), lines: vec![lex_file(text, 0, diags)], order: Vec::new() };
+    loaded.sources.push(Source { path: root, text: text.to_string() });
+    let mut walk = Walk { loader, has_path: path.is_some(), seen: HashSet::from([key.clone()]), stack: vec![key] };
+    visit(&mut loaded, 0, &mut walk, diags);
+    loaded
+}
+
+/// The quoted path of an `include` line, when it is one.
+fn include_target(line: &Line) -> Option<&Token> {
+    if line.indented || line.tokens[0].text != "include" {
+        return None;
+    }
+    line.tokens.get(1).filter(|t| is_quoted(t))
+}
+
+/// The lexer keeps a string's text without its quotes; its span still covers them.
+fn is_quoted(token: &Token) -> bool {
+    token.span.len > token.text.chars().count()
+}
+
+fn visit(loaded: &mut Loaded, file: usize, walk: &mut Walk, diags: &mut Vec<Diagnostic>) {
+    for index in 0..loaded.lines[file].len() {
+        loaded.order.push((file, index));
+        let Some(target) = include_target(&loaded.lines[file][index]).cloned() else { continue };
+        if !walk.has_path {
+            diags.push(
+                Diagnostic::error(target.span, "an include needs the song's path")
+                    .with_hint("the file is found relative to the song's own file; read the song with parse_file or parse_with"),
+            );
+            continue;
+        }
+        let includer = loaded.sources[file].path.clone();
+        let dir = includer.parent().unwrap_or(Path::new("/"));
+        let path = normalize(&dir.join(&target.text));
+        let key = identity(&path);
+        if walk.stack.contains(&key) {
+            diags.push(
+                Diagnostic::error(target.span, format!("including '{}' is a cycle", target.text))
+                    .with_hint(format!("{} is already being read: {}", file_name(&path), cycle(loaded, &walk.stack, &key))),
+            );
+            continue;
+        }
+        if walk.seen.contains(&key) {
+            // Already read somewhere in the song: a shared kit included twice
+            // is defined once.
+            continue;
+        }
+        match (walk.loader)(&path) {
+            Ok(text) => {
+                let index = loaded.sources.len();
+                loaded.lines.push(lex_file(&text, index, diags));
+                loaded.sources.push(Source { path, text });
+                walk.seen.insert(key.clone());
+                walk.stack.push(key);
+                visit(loaded, index, walk, diags);
+                walk.stack.pop();
+            }
+            Err(error) => {
+                diags.push(
+                    Diagnostic::error(target.span, format!("cannot read '{}': {error}", target.text))
+                        .with_hint(format!("the path is relative to the folder of {}, so it is {}", file_name(&includer), path.display())),
+                );
+            }
+        }
+    }
+}
+
+fn file_name(path: &Path) -> String {
+    path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| path.display().to_string())
+}
+
+/// The chain of includes from the file `key` back to itself, by file name.
+fn cycle(loaded: &Loaded, stack: &[PathBuf], key: &Path) -> String {
+    let from = stack.iter().position(|k| k == key).unwrap_or(0);
+    let name = |k: &Path| loaded.sources.iter().find(|s| identity(&s.path) == k).map_or_else(|| file_name(k), |s| file_name(&s.path));
+    let mut names: Vec<String> = stack[from..].iter().map(|k| name(k)).collect();
+    names.push(name(key));
+    names.join(" → ")
+}
+
+fn parse_sources(text: &str, path: Option<&Path>, loader: Loader) -> Parsed {
     let mut diags = Vec::new();
-    let lines = lex(source, &mut diags);
+    let loaded = load(text, path, loader, &mut diags);
     let lib = presets::library();
 
     // `instrument x preset y` and `master preset y` get a synthesized header and
     // the preset's lines in front of their own body.
     let mut arena: Vec<Line> = Vec::new();
-    let mut expansions: Vec<(usize, Option<usize>, Vec<&'static Line>)> = Vec::new();
-    for (i, line) in lines.iter().enumerate() {
+    // By (file, line): the header in `arena`, or none when the preset is unknown, and the preset's lines.
+    type Expansion = (Option<usize>, Vec<&'static Line>);
+    let mut expansions: HashMap<(usize, usize), Expansion> = HashMap::new();
+    for &(file, i) in &loaded.order {
+        let line = &loaded.lines[file][i];
         if line.indented {
             continue;
         }
@@ -45,33 +217,37 @@ pub fn parse(source: &str) -> (Option<Song>, Vec<Diagnostic>) {
                 }
                 header.tokens.extend(t[preset_at + 1..].iter().cloned());
                 arena.push(header);
-                expansions.push((i, Some(arena.len() - 1), preset.lines.clone()));
+                expansions.insert((file, i), (Some(arena.len() - 1), preset.lines.clone()));
             }
             Some(_) => diags.push(Diagnostic::error(t[preset_at].span, format!("preset '{name}' is not for {kw}"))),
             None => {
                 let mut d = Diagnostic::error(t[preset_at].span, format!("unknown preset '{name}'"));
                 d = d.with_hint(did_you_mean(name, lib.names()).unwrap_or_else(|| "list presets with: mat presets".into()));
                 diags.push(d);
-                expansions.push((i, None, Vec::new()));
+                expansions.insert((file, i), (None, Vec::new()));
             }
         }
     }
 
+    // An indented line belongs to the block above it in its own file: the
+    // first lines of an included file do not continue the includer's block,
+    // and the lines after an `include` are that line's body, not the body of
+    // the included file's last block.
     let mut blocks: Vec<Block> = Vec::new();
-    for (i, line) in lines.iter().enumerate() {
+    let mut open: HashMap<usize, usize> = HashMap::new();
+    for &(file, i) in &loaded.order {
+        let line = &loaded.lines[file][i];
         if line.indented {
-            match blocks.last_mut() {
-                Some(block) => block.body.push(line),
-                None => diags.push(Diagnostic::error(
-                    line.tokens[0].span,
-                    "indented line does not belong to any block",
-                )),
+            match open.get(&file) {
+                Some(&block) => blocks[block].body.push(line),
+                None => diags.push(Diagnostic::error(line.tokens[0].span, "indented line does not belong to any block")),
             }
-        } else if let Some((_, header, body)) = expansions.iter().find(|(idx, _, _)| *idx == i) {
-            let header = header.map_or(line, |h| &arena[h]);
-            blocks.push(Block { header, body: body.clone() });
         } else {
-            blocks.push(Block { header: line, body: Vec::new() });
+            match expansions.get(&(file, i)) {
+                Some((header, body)) => blocks.push(Block { header: header.map_or(line, |h| &arena[h]), body: body.clone() }),
+                None => blocks.push(Block { header: line, body: Vec::new() }),
+            }
+            open.insert(file, blocks.len() - 1);
         }
     }
 
@@ -89,6 +265,7 @@ pub fn parse(source: &str) -> (Option<Song>, Vec<Diagnostic>) {
             swing: 0.5,
             swing_grid: 1.0 / 16.0,
             seed: 0,
+            sources: loaded.sources.iter().map(|s| s.path.clone()).collect(),
         },
     };
 
@@ -105,6 +282,7 @@ pub fn parse(source: &str) -> (Option<Song>, Vec<Diagnostic>) {
         let kw = &block.header.tokens[0];
         match kw.text.as_str() {
             "title" | "tempo" | "meter" | "swing" | "seed" => {}
+            "include" => p.include(block),
             "section" => p.section(block),
             "instrument" => p.instrument(block),
             "pattern" => p.pattern(block),
@@ -128,9 +306,53 @@ pub fn parse(source: &str) -> (Option<Song>, Vec<Diagnostic>) {
     }
 
     p.check_duplicates();
+    rebase_paths(&mut p.song);
 
     let ok = !has_errors(&p.diags);
-    (ok.then_some(p.song), p.diags)
+    Parsed { song: ok.then_some(p.song), diagnostics: p.diags, sources: loaded.sources }
+}
+
+/// A file named in an included file — a sample, an instrument, a patch, an
+/// audio track — is found next to the file that names it, as its includes
+/// are: a kit shared by songs in other folders brings its samples along. The
+/// song's own relative paths are left for `arrange::resolve_paths`.
+fn rebase_paths(song: &mut Song) {
+    let sources = song.sources.clone();
+    let rebase = |file: usize, path: &mut String| {
+        let prefixed = ["samples:", "logic:", "garageband:", "surge:", "surge-3rdparty:"].iter().any(|p| path.starts_with(p)) || path == "gm";
+        if file == 0 || prefixed || path.is_empty() || Path::new(path.as_str()).is_absolute() {
+            return;
+        }
+        if let Some(dir) = sources.get(file).and_then(|s| s.parent()) {
+            *path = dir.join(&*path).to_string_lossy().into_owned();
+        }
+    };
+    for instrument in &mut song.instruments {
+        let file = instrument.span.file;
+        match &mut instrument.kind {
+            InstrumentKind::Sampler(def) => rebase(file, &mut def.load),
+            InstrumentKind::Samples(def) => def.zones.iter_mut().for_each(|z| rebase(file, &mut z.path)),
+            InstrumentKind::Scratch(def) if def.source_track.is_none() => rebase(file, &mut def.path),
+            InstrumentKind::AudioUnit(def) => {
+                if let Some(load) = &mut def.load {
+                    rebase(file, load);
+                }
+            }
+            InstrumentKind::Clap(def) => {
+                if let Some(patch) = &mut def.patch {
+                    rebase(file, patch);
+                }
+            }
+            InstrumentKind::Audio(def) => rebase(file, &mut def.path),
+            _ => {}
+        }
+    }
+    for track in &mut song.tracks {
+        let file = track.span.file;
+        if let Some((audio, _)) = &mut track.audio {
+            rebase(file, &mut audio.path);
+        }
+    }
 }
 
 struct Parser {
@@ -216,6 +438,19 @@ impl Parser {
         self.extra_tokens(line, 2);
     }
 
+    /// `include "file.song"`: the file was read where the line is (see
+    /// `load`); what is left to say is about the line itself.
+    fn include(&mut self, block: &Block) {
+        self.no_body(block);
+        let line = block.header;
+        let Some(t) = self.arg(line, 1, "file to include, in quotes") else { return };
+        if !is_quoted(t) {
+            self.err_hint(t.span, format!("the file to include is written in quotes: \"{}\"", t.text), "for example: include \"kit.song\"");
+            return;
+        }
+        self.extra_tokens(line, 2);
+    }
+
     fn section(&mut self, block: &Block) {
         self.no_body(block);
         let line = block.header;
@@ -228,7 +463,7 @@ impl Parser {
                     let _ = prev;
                     self.err(span, format!("section '{name}' is defined twice"));
                 }
-                self.song.sections.push(Section { name, line: span.line, from_bar: a, to_bar: b });
+                self.song.sections.push(Section { name, file: span.file, line: span.line, from_bar: a, to_bar: b });
             }
             _ => self.err_hint(t.span, format!("invalid bar range '{}'", t.text), "write it like: section chorus bars=17-32"),
         }
@@ -1785,6 +2020,128 @@ track stem
     fn supersaw_rejects_unison_options() {
         let (_, diags) = parse("instrument a synth\n  osc supersaw voices=7\n");
         assert!(diags[0].message.contains("does not apply to supersaw"));
+    }
+
+    /// Files in memory, by absolute path, for a song and what it includes.
+    fn files(entries: &[(&str, &str)]) -> impl Fn(&Path) -> std::io::Result<String> {
+        let map: HashMap<PathBuf, String> = entries.iter().map(|(p, t)| (PathBuf::from(p), t.to_string())).collect();
+        move |path: &Path| map.get(path).cloned().ok_or_else(|| std::io::Error::new(std::io::ErrorKind::NotFound, "not found"))
+    }
+
+    fn parse_in(entries: &[(&str, &str)]) -> Parsed {
+        let loader = files(entries);
+        let (root, text) = entries[0];
+        parse_with(text, Path::new(root), &loader)
+    }
+
+    const KIT: &str = "instrument lead synth\n  osc saw\npattern p\n  C4:w |\n";
+
+    #[test]
+    fn an_include_is_read_where_its_line_is() {
+        let parsed = parse_in(&[
+            ("/songs/song.song", "tempo 100\ntrack one\n  instrument lead\n  play p\ninclude \"parts/two.song\"\ntrack three\n  instrument lead\n  play p\n"),
+            ("/songs/parts/two.song", "tempo 140\ninclude \"../kit.song\"\ntrack two\n  instrument lead\n  play p\n"),
+            ("/songs/kit.song", KIT),
+        ]);
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let song = parsed.song.expect("parses");
+        assert_eq!(song.tracks.iter().map(|t| t.name.as_str()).collect::<Vec<_>>(), ["one", "two", "three"]);
+        assert_eq!(song.tempo, 140.0, "the included tempo comes after the song's, and the last one wins");
+        let paths: Vec<&Path> = parsed.sources.iter().map(|s| s.path.as_path()).collect();
+        assert_eq!(paths, [Path::new("/songs/song.song"), Path::new("/songs/parts/two.song"), Path::new("/songs/kit.song")]);
+        assert_eq!(song.sources.len(), 3);
+        // Spans say their file: the instrument is in the kit, read third.
+        assert_eq!((song.instruments[0].span.file, song.instruments[0].span.line), (2, 1));
+        assert_eq!((song.patterns[0].span.file, song.patterns[0].span.line), (2, 3));
+        assert_eq!(song.tracks.iter().map(|t| (t.span.file, t.span.line)).collect::<Vec<_>>(), [(0, 2), (1, 3), (0, 6)]);
+    }
+
+    #[test]
+    fn a_song_setting_after_an_include_wins_over_the_included_one() {
+        let parsed = parse_in(&[("/s/song.song", "include \"a.song\"\ntempo 100\n"), ("/s/a.song", "tempo 140\n")]);
+        assert_eq!(parsed.song.expect("parses").tempo, 100.0);
+    }
+
+    #[test]
+    fn a_file_included_twice_is_read_once() {
+        let parsed = parse_in(&[
+            ("/s/song.song", "include \"kit.song\"\ninclude \"part.song\"\ninclude \"./kit.song\"\n"),
+            ("/s/part.song", "include \"kit.song\"\ntrack t\n  instrument lead\n  play p\n"),
+            ("/s/kit.song", KIT),
+        ]);
+        assert!(parsed.diagnostics.is_empty(), "no duplicate definitions: {:?}", parsed.diagnostics);
+        assert_eq!(parsed.sources.len(), 3);
+        assert_eq!(parsed.song.expect("parses").instruments.len(), 1);
+    }
+
+    #[test]
+    fn a_name_defined_in_the_song_and_an_included_file_is_defined_twice() {
+        let parsed = parse_in(&[("/s/song.song", "include \"kit.song\"\ninstrument lead synth\n  osc sine\n"), ("/s/kit.song", KIT)]);
+        let twice = parsed.diagnostics.iter().find(|d| d.message.contains("defined twice")).expect("a duplicate");
+        assert_eq!((twice.span.file, twice.span.line), (0, 2));
+    }
+
+    #[test]
+    fn an_include_cycle_is_an_error_on_the_line_that_closes_it() {
+        let parsed = parse_in(&[
+            ("/s/song.song", "include \"a.song\"\n"),
+            ("/s/a.song", "include \"b.song\"\n"),
+            ("/s/b.song", "\ninclude \"song.song\"\n"),
+        ]);
+        assert!(parsed.song.is_none());
+        assert_eq!(parsed.diagnostics.len(), 1, "{:?}", parsed.diagnostics);
+        let cycle = &parsed.diagnostics[0];
+        assert_eq!((cycle.span.file, cycle.span.line, cycle.span.col), (2, 2, 9));
+        assert!(cycle.message.contains("cycle"), "{}", cycle.message);
+        assert_eq!(cycle.hint.as_deref(), Some("song.song is already being read: song.song → a.song → b.song → song.song"));
+    }
+
+    #[test]
+    fn a_missing_file_is_an_error_on_its_include_line() {
+        let parsed = parse_in(&[("/s/song.song", "tempo 120\ninclude \"kits/nope.song\"\n")]);
+        assert!(parsed.song.is_none());
+        let missing = &parsed.diagnostics[0];
+        assert_eq!((missing.span.file, missing.span.line, missing.span.col, missing.span.len), (0, 2, 9, 16));
+        assert!(missing.message.starts_with("cannot read 'kits/nope.song'"), "{}", missing.message);
+        assert!(missing.hint.as_deref().is_some_and(|h| h.contains("/s/kits/nope.song")), "{:?}", missing.hint);
+    }
+
+    #[test]
+    fn a_problem_in_an_included_file_is_in_that_file() {
+        let parsed = parse_in(&[("/s/song.song", "tempo 120\ninclude \"kit.song\"\n"), ("/s/kit.song", "instrument lead synth\n  osc sawz\n")]);
+        assert_eq!(parsed.diagnostics.len(), 1);
+        let d = &parsed.diagnostics[0];
+        assert_eq!((d.span.file, d.span.line, d.span.col), (1, 2, 7));
+    }
+
+    #[test]
+    fn an_include_needs_a_path_quotes_and_no_body() {
+        let (_, diags) = parse("include \"kit.song\"\n");
+        assert!(diags[0].message.contains("needs the song's path"), "{}", diags[0].message);
+        let parsed = parse_in(&[("/s/song.song", "include kit.song\n")]);
+        assert!(parsed.diagnostics[0].message.contains("in quotes"), "{:?}", parsed.diagnostics);
+        let parsed = parse_in(&[("/s/song.song", "include \"kit.song\"\n  osc saw\n"), ("/s/kit.song", KIT)]);
+        assert_eq!(parsed.diagnostics.len(), 1, "{:?}", parsed.diagnostics);
+        assert!(parsed.diagnostics[0].message.contains("does not take an indented body"));
+        assert_eq!(parsed.diagnostics[0].span.file, 0);
+        let parsed = parse_in(&[("/s/song.song", "instrument lead synth\ninclude \"kit.song\"\n"), ("/s/kit.song", "  osc saw\n")]);
+        assert!(parsed.diagnostics[0].message.contains("does not belong to any block"), "an included file does not continue the includer's block");
+    }
+
+    #[test]
+    fn a_file_named_in_an_included_file_is_found_next_to_it() {
+        let parsed = parse_in(&[
+            ("/s/song.song", "include \"kits/kit.song\"\ninstrument own samples\n  kick \"own.wav\"\n"),
+            ("/s/kits/kit.song", "instrument kit samples\n  kick \"kick.wav\" length=0.4s\n  snare \"samples:x.wav\"\ninstrument piano sampler\n  load \"logic:Piano.exs\"\n"),
+        ]);
+        let song = parsed.song.expect("parses");
+        let zones = |name: &str| match &song.instruments.iter().find(|i| i.name == name).unwrap().kind {
+            InstrumentKind::Samples(def) => def.zones.iter().map(|z| z.path.clone()).collect::<Vec<_>>(),
+            _ => unreachable!(),
+        };
+        assert_eq!(zones("kit"), ["/s/kits/kick.wav", "samples:x.wav"]);
+        assert_eq!(zones("own"), ["own.wav"], "the song's own are resolved when it is rendered");
+        assert!(matches!(&song.instruments[1].kind, InstrumentKind::Sampler(def) if def.load == "logic:Piano.exs"));
     }
 
     #[test]

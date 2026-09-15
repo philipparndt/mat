@@ -4,8 +4,11 @@
 use std::fmt::Write;
 
 /// A location in the source. `line` and `col` are 1-based, `len` is in chars.
+/// `file` says which file of the song: 0 is the song itself, and each file it
+/// includes has the index it was first read at (see `parser::Parsed::sources`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize)]
 pub struct Span {
+    pub file: usize,
     pub line: usize,
     pub col: usize,
     pub len: usize,

@@ -15,6 +15,7 @@ pub const TOP_LEVEL: &[Doc] = &[
     ("swing", "Song-wide swing: 0.5 straight, 0.66 triplet feel; `grid=1/8` chooses the grid."),
     ("seed", "Which take of everything random the song gets — drift, unison, LFO phases, humanize: `seed 7`."),
     ("section", "A named range of bars, `section chorus bars=17-32`, for navigation and game engines."),
+    ("include", "Reads another file here, as if its lines were written in its place: `include \"kit.song\"`, relative to this file. A file included twice is read once."),
     ("instrument", "An instrument: `instrument <name> <synth|drums|tb303|samples|scratch|sampler|clap|au>`, or `preset <name>`."),
     ("pattern", "A pattern of notes or a drum grid: `pattern <name> [grid=1/16] [bars=n] [pedal]`."),
     ("track", "A track: an instrument and the patterns it plays, with gain, pan, sends and effects."),

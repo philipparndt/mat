@@ -24,7 +24,7 @@ pub mod wav;
 
 pub use arrange::{Timeline, arrange, resolve_paths};
 pub use diag::{Diagnostic, Severity};
-pub use parser::parse;
+pub use parser::{Parsed, Source, parse, parse_file, parse_with};
 pub use render::{Audio, render};
 
 /// Parses and arranges a song in one step.

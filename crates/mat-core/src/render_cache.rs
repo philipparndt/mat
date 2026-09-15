@@ -312,6 +312,31 @@ master
         assert_ne!(before["one"], after["one"]);
     }
 
+    /// A layer of a song that includes a file is keyed by what the file
+    /// says: an edit there changes the layers it is heard in, and a comment
+    /// or a moved line changes nothing.
+    #[test]
+    fn an_edit_in_an_included_file_changes_the_layers_it_is_heard_in() {
+        let root = "tempo 120\ninclude \"parts.song\"\ntrack one\n  instrument a\n  play p x2\ntrack two\n  instrument b\n  play q x2\n";
+        let parts = "instrument a synth\n  osc saw\ninstrument b synth\n  osc square\npattern p\n  C4:q D4 E4 F4 |\npattern q\n  G4:h A4:h |\n";
+        let keys_of = |parts: &str| {
+            let parts = parts.to_string();
+            let loader = move |_: &Path| Ok(parts.clone());
+            let parsed = crate::parse_with(root, Path::new("/songs/song.song"), &loader);
+            assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+            keys(&crate::arrange(&parsed.song.expect("parses")).expect("arranges"))
+        };
+        let before = keys_of(parts);
+        let edited = keys_of(&parts.replace("G4:h A4:h |", "G4:h B4:h |"));
+        assert_ne!(before["two"], edited["two"], "the edited pattern's layer");
+        assert_eq!(before["one"], edited["one"]);
+        let sound = keys_of(&parts.replace("  osc saw", "  osc sine"));
+        assert_ne!(before["one"], sound["one"], "the edited instrument's layer");
+        assert_eq!(before["two"], sound["two"]);
+        let moved = keys_of(&format!("# the parts\n\n{}pattern p # moved\n  C4:q D4 E4 F4 |\n", parts.replace("pattern p\n  C4:q D4 E4 F4 |\n", "")));
+        assert_eq!(before, moved, "comments and moved lines are not heard");
+    }
+
     /// A render that reads its layers back is the same numbers as one that
     /// made them.
     #[test]

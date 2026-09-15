@@ -712,7 +712,10 @@ impl Default for Master {
 #[derive(Debug, Clone, Serialize)]
 pub struct Section {
     pub name: String,
-    /// The source line, 1-based; for an editor, never serialised.
+    /// The file of the song it is written in (see `Song::sources`) and its
+    /// line, 1-based; for an editor, never serialised.
+    #[serde(skip)]
+    pub file: usize,
     #[serde(skip)]
     pub line: usize,
     pub from_bar: f64,
@@ -736,6 +739,11 @@ pub struct Song {
     /// `seed <n>` at the top: which take of every random thing the song gets —
     /// drift, unison spread, LFO phases, humanize. 0 unless the song says.
     pub seed: u64,
+    /// The files the song was read from, by the index a `Span::file` names:
+    /// the song itself first, then each file it includes in the order they
+    /// were first read. An empty path for a song parsed from text alone.
+    /// Never part of a render's input.
+    pub sources: Vec<std::path::PathBuf>,
 }
 
 impl Song {

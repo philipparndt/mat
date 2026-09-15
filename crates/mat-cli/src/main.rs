@@ -23,9 +23,9 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Command {
-    /// Validate a song and print a summary.
+    /// Validate a song and the files it includes, and print a summary.
     Check { song: PathBuf },
-    /// Render a song to a WAV, FLAC or M4A (AAC) file.
+    /// Render a song, with the files it includes, to a WAV, FLAC or M4A (AAC) file.
     Render {
         song: PathBuf,
         /// Output file; .wav, .flac (lossless) or .m4a (AAC, macOS) picks the
@@ -45,8 +45,9 @@ enum Command {
         #[arg(long)]
         r#loop: bool,
         /// Also write one file per layer, in the output's format, into this
-        /// folder, plus manifest.json (tempo, bar length, sections) for game
-        /// engines.
+        /// folder, plus manifest.json (tempo, bar length, sections, and the
+        /// song's files, so an editor knows which saves need a new render)
+        /// for game engines.
         #[arg(long)]
         stems: Option<PathBuf>,
         /// Keep each layer here between renders, keyed by everything that
@@ -131,7 +132,7 @@ fn main() -> ExitCode {
 fn run(cli: Cli) -> anyhow::Result<ExitCode> {
     match cli.command {
         Command::Check { song } => {
-            let Some(timeline) = load(&song)? else { return Ok(ExitCode::FAILURE) };
+            let Some((timeline, _)) = load(&song)? else { return Ok(ExitCode::FAILURE) };
             print_summary(&timeline);
             println!("ok");
         }
@@ -145,7 +146,7 @@ fn run(cli: Cli) -> anyhow::Result<ExitCode> {
             // Checked before rendering, which can take minutes.
             let encoding = Encoding { format: Format::from_path(&output).map_err(anyhow::Error::msg)?, depth, bitrate };
             encoding.check().map_err(anyhow::Error::msg)?;
-            let Some(timeline) = load(&song)? else { return Ok(ExitCode::FAILURE) };
+            let Some((timeline, sources)) = load(&song)? else { return Ok(ExitCode::FAILURE) };
             let loop_seconds = r#loop.then(|| (timeline.end / timeline.bar_seconds - 1e-6).ceil() * timeline.bar_seconds);
             // One render, split into layers when stems are wanted: a stem is
             // the song's own take of its tracks, not a solo render of them.
@@ -248,13 +249,16 @@ fn run(cli: Cli) -> anyhow::Result<ExitCode> {
                         "sum_peak_db": layers_peak_db,
                     },
                     "master": timeline.master,
+                    // Every file the song was read from, the song first: a save
+                    // of any of them changes what a render would make.
+                    "sources": sources,
                 });
                 std::fs::write(dir.join("manifest.json"), serde_json::to_string_pretty(&manifest)?)?;
                 println!("wrote {}", dir.join("manifest.json").display());
             }
         }
         Command::Play { song } => {
-            let Some(timeline) = load(&song)? else { return Ok(ExitCode::FAILURE) };
+            let Some((timeline, _)) = load(&song)? else { return Ok(ExitCode::FAILURE) };
             play(&timeline)?;
         }
         Command::Presets => {
@@ -287,7 +291,7 @@ fn run(cli: Cli) -> anyhow::Result<ExitCode> {
             mat_lsp::run_stdio().map_err(|e| anyhow::anyhow!("{e}"))?;
         }
         Command::Export { song, output } => {
-            let Some(timeline) = load(&song)? else { return Ok(ExitCode::FAILURE) };
+            let Some((timeline, _)) = load(&song)? else { return Ok(ExitCode::FAILURE) };
             let json = serde_json::to_string_pretty(&timeline)?;
             match output {
                 Some(path) => std::fs::write(&path, json).with_context(|| format!("writing {}", path.display()))?,
@@ -298,23 +302,37 @@ fn run(cli: Cli) -> anyhow::Result<ExitCode> {
     Ok(ExitCode::SUCCESS)
 }
 
-/// Parses and arranges a song; prints diagnostics. Returns `None` on errors.
-fn load(path: &Path) -> anyhow::Result<Option<Timeline>> {
-    let source = std::fs::read_to_string(path).with_context(|| format!("reading {}", path.display()))?;
+/// Parses and arranges a song and the files it includes; prints diagnostics,
+/// each under the path of the file it is in. Returns `None` on errors, and
+/// otherwise the timeline and the song's files, absolute, the song first.
+fn load(path: &Path) -> anyhow::Result<Option<(Timeline, Vec<PathBuf>)>> {
+    let parsed = mat_core::parse_file(path).with_context(|| format!("reading {}", path.display()))?;
     let name = path.display().to_string();
+    let cwd = std::env::current_dir().ok();
     let print = |diags: &[Diagnostic]| {
         for d in diags {
-            eprint!("{}", d.render(&name, &source));
+            let Some(source) = parsed.sources.get(d.span.file) else { continue };
+            // The song as it was named; an included file as a path from here.
+            let file = if d.span.file == 0 {
+                name.clone()
+            } else {
+                cwd.as_ref().and_then(|cwd| source.path.strip_prefix(cwd).ok()).unwrap_or(&source.path).display().to_string()
+            };
+            eprint!("{}", d.render(&file, &source.text));
         }
     };
-    match mat_core::compile(&source) {
-        Ok((mut timeline, warnings)) => {
-            print(&warnings);
+    let mut diags = parsed.diagnostics.clone();
+    match parsed.song.as_ref().map(mat_core::arrange) {
+        Some(Ok(mut timeline)) => {
+            print(&diags);
             let dir = path.parent().unwrap_or(Path::new("."));
             mat_core::resolve_paths(&mut timeline, dir);
-            Ok(Some(timeline))
+            Ok(Some((timeline, parsed.sources.iter().map(|s| s.path.clone()).collect())))
         }
-        Err(diags) => {
+        failed => {
+            if let Some(Err(errors)) = failed {
+                diags.extend(errors);
+            }
             print(&diags);
             let errors = diags.iter().filter(|d| d.severity == Severity::Error).count();
             eprintln!("{errors} error(s) in {name}");

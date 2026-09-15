@@ -1,0 +1,43 @@
+# Include — a song made of three files.
+# The kit and its beats are in kit.song, the bass line in parts/bass.song.
+# A path is relative to the file the include is written in, and a file
+# included twice (bass.song includes the kit too) is read once.
+
+title "Include"
+tempo 124
+meter 4/4
+
+include "kit.song"
+include "parts/bass.song"
+
+instrument pad preset dream-pad
+  filter lowpass cutoff=1.8k
+
+pattern chords
+  [A2 E3 C4]:w | [F2 C3 A3]:w | [C3 G3 E4]:w | [G2 D3 B3]:w |
+
+# Bars: 1-4 beat alone | 5-12 bass and chords | 13-16 beat and chords
+track drums
+  instrument kit
+  gain -4
+  play kicks x2
+  play beat x14
+
+track bass
+  instrument bass
+  gain -6
+  sidechain drums depth=0.4 release=0.15
+  at 5
+  play line x2
+
+track pad
+  instrument pad
+  gain -12
+  reverb 0.35
+  at 5
+  play chords x3
+
+master
+  gain 2
+  reverb size=0.6 decay=0.6
+  limiter ceiling=-1

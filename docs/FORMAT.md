@@ -9,6 +9,7 @@ title "My Song"
 tempo 120          # quarter notes per minute
 meter 4/4
 section chorus bars=17-32   # optional, named bar ranges (exported to game engines)
+include "kits/drums.song"   # optional, another file's blocks, read here
 
 instrument <name> <synth|drums|tb303|sampler|clap|au>
   ...
@@ -24,8 +25,41 @@ master
   ...
 ```
 
-Run `mat check song.song` after every edit. Errors show the line and column,
-and usually a hint.
+Run `mat check song.song` after every edit. Errors show the file, line and
+column, and usually a hint.
+
+## Includes
+
+```
+include "kit.song"            # next to this file
+include "parts/bass.song"     # in a folder below it
+include "../shared/fx.song"
+```
+
+`include "<file>"` reads another file where the line is, as if its lines were
+written in its place: instruments, presets, patterns, tracks, sections, song
+settings like `tempo`, and its own includes. Everything behaves as it would in
+one file — a second `tempo` wins over the first, and a pattern defined in both
+files is defined twice. An `include` line takes no indented body, and an
+included file's first indented lines do not continue the block above the
+`include`.
+
+* **Paths** are relative to the folder of the file the `include` is written
+  in, and must be quoted. So are the files an included file names — samples,
+  `load`, `patch`, `audio` — so a kit brings its samples along wherever it is
+  included from (`logic:`, `samples:` and the other shortcuts are unchanged).
+* **A file included twice** anywhere in the song is read the first time and
+  skipped after that, so two parts can both include a shared kit.
+* **A cycle** — a file that includes itself, directly or through others — is an
+  error on the `include` line that closes it, and so is a file that cannot be
+  read.
+
+`mat check` and `mat render` read the includes of the song they are given, and
+report each problem under the path of the file it is in. `mat render --stems`
+lists every file the song was read from under `sources` in `manifest.json`,
+the song first, so an editor knows a save of any of them needs a new render.
+The render cache is keyed by what the files say, not where: a comment or a
+moved block in an included file renders nothing again. See `examples/include/`.
 
 ## Patterns
 
@@ -348,7 +382,8 @@ mat render loop.song --loop --stems out/   # seamless loop: whole bars, tails fo
 ```
 
 `manifest.json` lists tempo, bar length, sections (with start and end in seconds)
-and the layer files, so a game engine can switch layers on bar boundaries.
+and the layer files, so a game engine can switch layers on bar boundaries, and
+under `sources` the absolute paths of the song and every file it includes.
 
 The layers come out of one render of the whole song: every track is rendered
 once, as it is in the mix, and each layer is its tracks' share — with their

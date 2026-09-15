@@ -20,6 +20,12 @@ pub struct Line {
 }
 
 pub fn lex(source: &str, diags: &mut Vec<Diagnostic>) -> Vec<Line> {
+    lex_file(source, 0, diags)
+}
+
+/// Lexes the file of a song at index `file`: every span says so.
+pub fn lex_file(source: &str, file: usize, diags: &mut Vec<Diagnostic>) -> Vec<Line> {
+    let span = |line: usize, start: usize, len: usize| Span { file, line, col: start + 1, len };
     let mut lines = Vec::new();
     for (idx, raw) in source.lines().enumerate() {
         let line_no = idx + 1;
@@ -85,8 +91,4 @@ pub fn lex(source: &str, diags: &mut Vec<Diagnostic>) -> Vec<Line> {
         }
     }
     lines
-}
-
-fn span(line: usize, start: usize, len: usize) -> Span {
-    Span { line, col: start + 1, len }
 }

@@ -1,0 +1,15 @@
+# The bass line. It is played over the kit's beat, so it includes the kit
+# as well: a file included twice is read once.
+
+include "../kit.song"
+
+instrument bass tb303
+  wave saw
+  cutoff 0.3
+  resonance 0.7
+  envmod 0.5
+  decay 0.4
+
+pattern line
+  A1:e A1 A2! A1 C2~ D2 A1 G1 | F1:e F1 F2! F1 A1~ C2 F1 E1 |
+  C2:e C2 C3! C2 E2~ G2 C2 B1 | G1:e G1 G2! G1 B1~ D2 G1 A1 |
