@@ -1,0 +1,11 @@
+# Vector Drive: the bass and the sub under it.
+
+# Rolling offbeat bass; the kick owns the downbeats.
+pattern bass
+  (r:s G1 G1 G1)x4 |     (r G1 G1 G1)x3 r G1 G2! G1 |
+  (r Eb1 Eb1 Eb1)x4 |    (r Eb1 Eb1 Eb1)x3 r Eb1 Eb2! Eb1 |
+  (r F1 F1 F1)x4 |       (r F1 F1 F1)x3 r F1 F2! F1 |
+  (r D1 D1 D1)x4 |       (r D1 D1 D1)x3 r D2 D2 D1 |
+
+pattern sub
+  (G1:w |)x2 (Eb1:w |)x2 (F1:w |)x2 (D1:w |)x2

@@ -1,0 +1,13 @@
+# Vector Drive: the arpeggio, for the pluck.
+
+# 16th arpeggio with accents on the chord tones that carry the movement.
+# Written out, not looped: the last notes of every bar turn differently.
+pattern arp
+  G3:s@110 Bb3@70 D4@90 G4@70 D4@100 Bb3@70 G3@90 Bb3@70 G3@110 Bb3@70 D4@90 G4@70 D4@100 Bb3@70 G3@90 D4@70        |
+  G3@110 Bb3@70 D4@90 G4@70 D4@100 Bb3@70 G3@90 Bb3@70 G3@110 Bb3@70 D4@90 G4@70 F4@100 D4@70 Bb3@90 D4@70          |
+  Eb3@110 G3@70 Bb3@90 Eb4@70 Bb3@100 G3@70 Eb3@90 G3@70 Eb3@110 G3@70 Bb3@90 Eb4@70 Bb3@100 G3@70 Eb3@90 Bb3@70    |
+  Eb3@110 G3@70 Bb3@90 Eb4@70 Bb3@100 G3@70 Eb3@90 G3@70 Eb3@110 G3@70 Bb3@90 Eb4@70 G4@100 Eb4@70 Bb3@90 G3@70     |
+  F3@110 A3@70 C4@90 F4@70 C4@100 A3@70 F3@90 A3@70 F3@110 A3@70 C4@90 F4@70 C4@100 A3@70 F3@90 C4@70               |
+  F3@110 A3@70 C4@90 F4@70 C4@100 A3@70 F3@90 A3@70 F3@110 A3@70 C4@90 F4@70 A4@100 F4@70 C4@90 A3@70               |
+  D3@110 F3@70 A3@90 D4@70 A3@100 F3@70 D3@90 F3@70 D3@110 F3@70 A3@90 D4@70 A3@100 F3@70 D3@90 A3@70               |
+  D3@110 F3@70 A3@90 D4@70 A3@100 F3@70 D3@90 F3@70 D3@110 F3@70 A3@90 D4@70 F4@100 D4@70 A3@90 F3@70               |

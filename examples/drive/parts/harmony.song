@@ -1,0 +1,16 @@
+# Vector Drive: the chords, for the pad and the stabs. Two bars each.
+
+pattern chords
+  ([G3 Bb3 D4]:w |)x2 ([Eb3 G3 Bb3]:w |)x2
+  ([F3 A3 C4]:w |)x2  ([D3 F3 A3]:w |)x2
+
+pattern chords_high
+  ([G4 Bb4 D5]:w |)x2 ([Eb4 G4 Bb4]:w |)x2
+  ([F4 A4 C5]:w |)x2  ([D4 F4 A4]:w |)x2
+
+# Offbeat stabs. The last one of every second bar climbs.
+pattern stabs
+  (r:e [G3 Bb3 D4])x4 |  (r [G3 Bb3 D4])x3 r [Bb3 D4 F4] |
+  (r [Eb3 G3 Bb3])x4 |   (r [Eb3 G3 Bb3])x3 r [G3 Bb3 Eb4] |
+  (r [F3 A3 C4])x4 |     (r [F3 A3 C4])x3 r [A3 C4 F4] |
+  (r [D3 F3 A3])x4 |     (r [D3 F3 A3])x3 r [F3 A3 D4] |

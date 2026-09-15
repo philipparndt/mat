@@ -1,0 +1,198 @@
+# Vector Drive: original driving electronic track for the game, written in
+# layers so the game can add and remove parts by scene intensity.
+# G minor, 133 BPM, chord loop Gm | Eb | F | Dm (two bars each).
+#
+# The same song as examples/drive.song, in files: the sounds are in
+# instruments.song, the kit and its beats in drums.song, and the notes each
+# layer plays in parts/. This file is the arrangement.
+#
+# Layers (stems): pad, arp, bass, drums, lead, stabs, fx
+# Render:  mat render drive.song --stems stems
+
+title "Vector Drive"
+tempo 133
+meter 4/4
+
+section explore    bars=1-16
+section tension    bars=17-32
+section action     bars=33-64
+section breakdown  bars=65-72
+section build      bars=73-80
+section action2    bars=81-112
+section outro      bars=113-116
+
+include "instruments.song"
+include "drums.song"
+include "parts/harmony.song"
+include "parts/bass.song"
+include "parts/arp.song"
+include "parts/lead.song"
+include "parts/fx.song"
+
+# ------------------------------------------------------------ arrangement
+
+track pad
+  instrument pad
+  layer pad
+  gain -6
+  reverb 0.5
+  eq lowcut=180 high=+3 highfreq=5k
+  chorus mix=0.5
+  sidechain drums depth=0.7 release=0.3
+  play chords x9
+  at 73
+  play chords_high
+  at 81
+  play chords x4
+  at 113
+  play chords_high
+
+track arp
+  instrument pluck
+  layer arp
+  gain +2
+  pan -0.2
+  reverb 0.25
+  delay 0.35
+  eq lowcut=250 high=+3 highfreq=4k
+  chorus mix=0.3
+  sidechain drums depth=0.45
+  sweep cutoff from=350 to=900 bars=1-16
+  sweep cutoff from=900 to=5000 bars=17-32
+  sweep cutoff from=900 to=6000 bars=73-80
+  play arp x2 vel=0.7
+  play arp x2
+  play arp x4
+  play arp vel=0.75
+  play arp x5
+
+track bass
+  instrument bass
+  layer bass
+  gain -7
+  eq lowcut=30
+  sidechain drums depth=0.8 release=0.25
+  at 17
+  play bass x2
+  play bass x4
+  at 73
+  play bass
+  play bass x4
+
+track sub
+  instrument sub
+  layer bass
+  gain -11
+  sidechain drums depth=0.9 release=0.2
+  at 33
+  play sub x4
+  at 81
+  play sub x4
+
+track stabs
+  instrument stab
+  layer stabs
+  gain -5
+  pan 0.15
+  reverb 0.2
+  eq lowcut=250 high=+3 highfreq=4k
+  sidechain drums depth=0.6
+  at 33
+  play stabs x4
+  at 81
+  play stabs x4
+
+track lead
+  instrument lead
+  layer lead
+  gain -5
+  reverb 0.35
+  delay 0.25
+  eq lowcut=300 mid=+2 midfreq=2k high=+5 highfreq=4k
+  chorus mix=0.25
+  sidechain drums depth=0.3
+  at 41
+  play lead
+  play lead_answer
+  play lead
+  at 65
+  play lead vel=0.6
+  at 89
+  play lead
+  play lead_answer
+  play lead
+
+track lead_low
+  instrument lead
+  layer lead
+  gain -11
+  pan -0.3
+  reverb 0.3
+  eq lowcut=150
+  sidechain drums depth=0.3
+  at 49
+  play lead_answer transpose=-12
+  at 97
+  play lead_answer transpose=-12
+
+track drums
+  instrument kit
+  layer drums
+  gain -6
+  reverb 0.06
+  eq high=+3 highfreq=7k
+  play shaker x8
+  play hats x8
+  play half_kick x8
+  # Eight bars four times: a crash, six bars of beat, a fill into the next.
+  repeat 4 {
+    play beat_crash
+    play beat x6
+    play beat_fill
+  }
+  play break_hit
+  rest 7
+  play roll_q x4
+  play roll_e x2
+  play roll_s
+  play roll_up
+  repeat 4 {
+    play beat_crash
+    play beat x6
+    play beat_fill
+  }
+  play break_hit
+
+track riser
+  instrument riser
+  layer fx
+  gain 0
+  reverb 0.4
+  sweep cutoff from=250 to=6000 bars=25-32
+  sweep cutoff from=250 to=6000 bars=73-80
+  at 25
+  play riser_note
+  at 73
+  play riser_note
+
+track impact
+  instrument impact
+  layer fx
+  gain -4
+  reverb 0.6
+  at 33
+  play impact_note
+  at 65
+  play impact_note
+  at 81
+  play impact_note
+  at 113
+  play impact_note
+
+master
+  gain 3
+  saturation 0.3
+  comp threshold=-14 ratio=2.5 attack=15ms release=200ms makeup=1
+  reverb size=0.85 decay=0.75 damping=0.4 predelay=25ms
+  delay time=3/16 feedback=0.38 tone=4k
+  limiter ceiling=-1

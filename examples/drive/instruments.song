@@ -1,0 +1,59 @@
+# Vector Drive: the sounds. The drum kit is in drums.song, with its beats.
+
+instrument pad synth
+  osc supersaw detune=0.55 mix=0.75 level=0.8
+  osc sine octave=-1 level=0.25
+  filter lowpass cutoff=1200 res=0.15 keytrack=0.3
+  lfo filter rate=0.11 depth=0.6 fade=1
+  lfo width rate=0.07 depth=0.3
+  drift 5
+  amp attack=0.8 decay=1 sustain=0.9 release=1.5
+
+instrument pluck synth
+  osc supersaw detune=0.3 mix=0.5
+  osc square octave=1 level=0.15
+  filter lowpass cutoff=900 res=0.3 env=4 keytrack=0.5
+  amp attack=1ms decay=0.22 sustain=0 release=0.12
+  fenv attack=1ms decay=0.11 sustain=0 release=0.1
+  drift 4
+
+instrument bass synth
+  osc saw level=0.7
+  osc square level=0.35
+  osc sine octave=-1 level=0.7
+  filter lowpass cutoff=240 res=0.25 env=2.5 drive=0.45
+  amp attack=1ms decay=0.12 sustain=0.55 release=40ms
+  fenv attack=1ms decay=70ms sustain=0 release=50ms
+
+instrument sub synth
+  osc sine octave=-1
+  amp attack=3ms decay=0.1 sustain=0.9 release=60ms
+
+instrument lead synth
+  osc supersaw detune=0.55 mix=0.75
+  osc supersaw octave=1 detune=0.4 mix=0.6 level=0.3
+  osc saw octave=-1 voices=3 spread=10 level=0.3
+  filter lowpass cutoff=6000 res=0.1 env=1 keytrack=0.3
+  amp attack=8ms decay=0.4 sustain=0.8 release=0.3
+  fenv attack=1ms decay=0.3 sustain=0.4 release=0.3
+  vibrato rate=5.5 depth=8 delay=0.35
+  drift 6
+
+instrument stab synth
+  osc supersaw detune=0.45 mix=0.6
+  filter lowpass cutoff=1500 res=0.1 env=1.5
+  amp attack=2ms decay=0.15 sustain=0.4 release=60ms
+  fenv attack=1ms decay=0.1 sustain=0.2 release=50ms
+
+instrument riser synth
+  noise 0.7
+  osc supersaw detune=0.8 mix=0.9 level=0.5
+  filter bandpass cutoff=300 res=0.5
+  amp attack=13s decay=0.5 sustain=1 release=40ms
+
+instrument impact synth
+  noise 0.7
+  osc sine octave=-2 level=0.9
+  filter lowpass cutoff=160 res=0.2 env=6
+  amp attack=1ms decay=3 sustain=0 release=0.5
+  fenv attack=1ms decay=2.5 sustain=0 release=0.5

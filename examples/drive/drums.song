@@ -1,0 +1,65 @@
+# Vector Drive: the kit and its beats.
+
+instrument kit drums
+  kick decay=0.8 tune=1
+  clap decay=1.1
+  snare decay=0.7
+  hat gain=-3
+  openhat decay=0.5 gain=-1
+  ride gain=-7 decay=0.8
+  crash gain=-4
+
+pattern shaker grid=1/16
+  hat  (o.)x8
+  rim  (......x.)x2
+
+pattern hats grid=1/16
+  hat     (X.o.x.o.)x2
+  openhat (..x.)x4
+
+pattern half_kick grid=1/16
+  kick    (X.......)x2
+  hat     (X.o.x.o.)x2
+  openhat (..x.)x4
+  clap    (....x...)x2
+
+pattern beat grid=1/16
+  kick    (X...)x4
+  clap    (....X...)x2
+  hat     (X.o.x.o.)x2
+  openhat (..x.)x4
+  ride    (x...)x4
+
+# The open hat leaves the last beat to the snare.
+pattern beat_fill grid=1/16
+  kick    (X...)x4
+  clap    (....X...)x2
+  hat     (X.o.x.o.)x2
+  openhat (..x.)x3 ....
+  snare   ............x6x9
+
+pattern beat_crash grid=1/16
+  kick    (X...)x4
+  clap    (....X...)x2
+  hat     (X.o.x.o.)x2
+  openhat (..x.)x4
+  crash   X...............
+
+pattern roll_q grid=1/16
+  snare 3...4...4...5...
+  kick  X...............
+
+pattern roll_e grid=1/16
+  snare 5.5.6.6.6.6.7.7.
+  kick  X...............
+
+pattern roll_s grid=1/16
+  snare 6666777788889999
+
+pattern roll_up grid=1/16
+  snare 7777888899999999
+  kick  (X.......)x2
+
+pattern break_hit grid=1/16
+  kick  X...............
+  crash X...............

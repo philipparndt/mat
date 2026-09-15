@@ -1,0 +1,7 @@
+# Vector Drive: the one note each of the riser and the impact plays.
+
+pattern impact_note
+  G2:w
+
+pattern riser_note
+  G4:8/1

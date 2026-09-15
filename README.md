@@ -90,6 +90,7 @@ certificate so that permission survives rebuilds.
 | `examples/harbour.song` | melodic techno study: Surge XT bass and arp, gliding PWM lead, mallet motif, phaser, shimmer reverb, organic kit (needs Surge XT) |
 | `examples/neon.song` | K-pop: 808 trap verses, brass-stab chorus, chanted post-chorus hook, scratches (presets only) |
 | `examples/lantern.song` | progressive trance: a 16-saw pluck whose filter and decay open over each build, mono low layer, held sine notes into the drops, clean tuned kick with a click, offbeat-16th bass (built-in synths only) |
+| `examples/drive/drive.song` | Vector Drive (`examples/drive.song`) split into files with `include`, its repeats written as loops; renders the same samples (built-in synths only) |
 
 ## Adaptive game music
 
