@@ -1,3 +1,7 @@
+include "kits/drums.song"
+# <- keyword
+#        ^ string
+
 instrument acid tb303
 # <- keyword
 #          ^ function

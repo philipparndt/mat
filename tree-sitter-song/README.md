@@ -30,6 +30,7 @@ lines does not end the block.
 | Block | Node | Body lines |
 |---|---|---|
 | `title` `tempo` `meter` `swing` `seed` | `statement` | `setting` |
+| `include "<file>"` | `include_statement` (`path`) | `setting` |
 | `section <name>` | `section_block` | `setting` |
 | `instrument <name> <kind>` / `preset <preset>` | `instrument_block` | `setting`, `reference_setting` |
 | `preset <name> <kind> "…"` (presets.song) | `preset_block` | `setting` |

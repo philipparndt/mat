@@ -34,6 +34,7 @@ module.exports = grammar({
   // follows (a column-0 comment in between), continues its body.
   conflicts: $ => [
     [$.statement],
+    [$.include_statement],
     [$.section_block],
     [$.instrument_block],
     [$.preset_block],
@@ -51,6 +52,7 @@ module.exports = grammar({
 
     _unit: $ => choice(
       $.statement,
+      $.include_statement,
       $.section_block,
       $.instrument_block,
       $.preset_block,
@@ -70,6 +72,20 @@ module.exports = grammar({
     statement: $ => seq(
       field('keyword', choice('title', 'tempo', 'meter', 'swing', 'seed')),
       repeat($._item),
+      body($, $._setting_line),
+    ),
+
+    // include "kits/drums.song"
+    include_statement: $ => seq(
+      'include',
+      optional(choice(
+        seq(field('path', $.string), repeat($._item)),
+        // An unquoted path, half typed: not an error here, the parser says so.
+        seq(
+          choice($.identifier, $.option, $.number, $.fraction, $.range, $.note, $.note_range, $.repeat_count, $.bar, $._junk),
+          repeat($._item),
+        ),
+      )),
       body($, $._setting_line),
     ),
 

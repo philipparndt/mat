@@ -131,6 +131,84 @@
     }
   },
   {
+    "type": "include_statement",
+    "named": true,
+    "fields": {
+      "path": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "string",
+            "named": true
+          }
+        ]
+      }
+    },
+    "children": {
+      "multiple": true,
+      "required": false,
+      "types": [
+        {
+          "type": "bar",
+          "named": true
+        },
+        {
+          "type": "fraction",
+          "named": true
+        },
+        {
+          "type": "identifier",
+          "named": true
+        },
+        {
+          "type": "note",
+          "named": true
+        },
+        {
+          "type": "note_range",
+          "named": true
+        },
+        {
+          "type": "number",
+          "named": true
+        },
+        {
+          "type": "option",
+          "named": true
+        },
+        {
+          "type": "range",
+          "named": true
+        },
+        {
+          "type": "reference_setting",
+          "named": true
+        },
+        {
+          "type": "repeat_count",
+          "named": true
+        },
+        {
+          "type": "setting",
+          "named": true
+        },
+        {
+          "type": "string",
+          "named": true
+        },
+        {
+          "type": "value_line",
+          "named": true
+        },
+        {
+          "type": "word",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
     "type": "instrument_block",
     "named": true,
     "fields": {
@@ -846,6 +924,10 @@
       "required": false,
       "types": [
         {
+          "type": "include_statement",
+          "named": true
+        },
+        {
           "type": "instrument_block",
           "named": true
         },
@@ -1334,6 +1416,10 @@
   {
     "type": "identifier",
     "named": true
+  },
+  {
+    "type": "include",
+    "named": false
   },
   {
     "type": "instrument",
