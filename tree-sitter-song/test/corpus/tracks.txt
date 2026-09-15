@@ -147,3 +147,48 @@ track vocals
       (repeat_count))
     (play_step
       (reference))))
+
+================================================================================
+Repeat blocks, nested, with a comment and a blank line inside
+================================================================================
+
+track bass
+  instrument acid
+  repeat 4 {
+    play verse x2
+    repeat 2 {
+      rest 1
+    }
+
+# a fill
+    play fill transpose=2
+  }
+  gain -3
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (track_block
+    (name)
+    (reference_setting
+      (setting_name)
+      (reference))
+    (repeat_block
+      (number)
+      (play_step
+        (reference)
+        (repeat_count))
+      (repeat_block
+        (number)
+        (setting
+          (setting_name)
+          (number)))
+      (comment)
+      (play_step
+        (reference)
+        (option
+          (key)
+          (number))))
+    (setting
+      (setting_name)
+      (number))))

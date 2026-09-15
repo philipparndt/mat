@@ -114,3 +114,41 @@ pattern ostinato grid=1/16
       (grid_hit)
       (grid_hold)
       (grid_rest))))
+
+================================================================================
+Repeat groups in grid rows
+================================================================================
+
+pattern beat grid=1/16
+  kick (X...x...)x2
+  hat  x. (x. (o.)x2)x3 |
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (pattern_block
+    (name)
+    (option
+      (key)
+      (fraction))
+    (grid_row
+      (drum)
+      (group
+        (grid_hit)
+        (grid_rest)
+        (grid_hit)
+        (grid_rest)
+        (repeat_count)))
+    (grid_row
+      (drum)
+      (grid_hit)
+      (grid_rest)
+      (group
+        (grid_hit)
+        (grid_rest)
+        (group
+          (grid_hit)
+          (grid_rest)
+          (repeat_count))
+        (repeat_count))
+      (bar))))

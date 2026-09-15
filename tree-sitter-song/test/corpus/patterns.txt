@@ -193,3 +193,57 @@ pattern bare
         (note))
       (event
         (note)))))
+
+================================================================================
+Repeat groups in a note line: nested, with chords, bars and rests
+================================================================================
+
+pattern acid
+  (A1:s A1 A2! C2~)x3 E2:s G2 |
+  A4 ((C4:e [E4 G4])x2 |)x4 (r:q)x2
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (pattern_block
+    (name)
+    (note_line
+      (group
+        (event
+          (note)
+          (duration))
+        (event
+          (note))
+        (event
+          (note)
+          (articulation))
+        (event
+          (note)
+          (articulation))
+        (repeat_count))
+      (event
+        (note)
+        (duration))
+      (event
+        (note))
+      (bar))
+    (note_line
+      (event
+        (note))
+      (group
+        (group
+          (event
+            (note)
+            (duration))
+          (event
+            (chord
+              (note)
+              (note)))
+          (repeat_count))
+        (bar)
+        (repeat_count))
+      (group
+        (event
+          (rest)
+          (duration))
+        (repeat_count)))))

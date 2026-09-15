@@ -32,6 +32,18 @@ pattern beat grid=1/16
 #         ^ string
 #          ^ punctuation.delimiter
 #              ^ operator
+  hat     (x.)x8
+#         ^ punctuation.bracket
+#          ^ string
+#            ^ punctuation.bracket
+#             ^ number
+
+pattern riff
+  (A1:s A1 A2! C2~)x3 |
+# ^ punctuation.bracket
+#  ^ constant
+#                 ^ punctuation.bracket
+#                  ^ number
 
 track acid
   instrument acid
@@ -44,3 +56,11 @@ track acid
 # ^ keyword
 #      ^ variable
 #           ^ number
+  repeat 2 {
+# ^ keyword
+#        ^ number
+#          ^ punctuation.bracket
+    play riff
+#   ^ keyword
+  }
+# ^ punctuation.bracket

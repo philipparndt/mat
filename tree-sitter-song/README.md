@@ -35,7 +35,7 @@ lines does not end the block.
 | `instrument <name> <kind>` / `preset <preset>` | `instrument_block` | `setting`, `reference_setting` |
 | `preset <name> <kind> "…"` (presets.song) | `preset_block` | `setting` |
 | `pattern <name> [grid=…] [bars=…] [pedal]` | `pattern_block` | `note_line`, `grid_row` |
-| `track <name>` | `track_block` | `setting`, `reference_setting`, `play_step`, `sweep` |
+| `track <name>` | `track_block` | `setting`, `reference_setting`, `play_step`, `sweep`, `repeat_block` |
 | `master` / `master preset <preset>` | `master_block` | `setting`, `reference_setting` |
 | any other word | `unknown_block` | `setting` |
 
@@ -51,8 +51,17 @@ lines does not end the block.
   `bar` (`|`).
 - `grid_row`: a `drum` or `note` voice, then runs of `grid_hit` (`x X o 1-9`),
   `grid_hold` (`=`) and `grid_rest` (`. - _`).
+- `group`: `(`, what it repeats — the `event`s and `bar`s of a note line, or
+  the cells of a grid row, and other `group`s — then `)` and its
+  `repeat_count` (`x3`). `A4 (B4 C4)x2` is a note line and `C4 (x.)x2` a grid
+  row, by what is inside the group.
+- `repeat_block`: `repeat`, its count (`number`), `{`, the track lines it
+  repeats as its children — `repeat_block`s among them — and `}` on a line of
+  its own.
 
 The grammar is lenient on purpose: any line takes unknown words, and characters
 it cannot place become a `word` node instead of an error, so a half-typed line
-does not colour the rest of the file as broken. It does not check what the
+does not colour the rest of the file as broken. A group with no `)` yet is a
+group to the end of its line, and a `repeat` with no `{` or no `}` yet is a
+`repeat_block` all the same. It does not check what the
 `mat` parser checks (known settings, option names, bar lengths).

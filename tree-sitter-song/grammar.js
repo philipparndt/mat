@@ -42,6 +42,10 @@ module.exports = grammar({
     [$.track_block],
     [$.master_block],
     [$.unknown_block],
+    // `C4 (` starts a grid row or a line of notes: what is in the group says which.
+    [$.grid_row, $._bare_event],
+    // A `repeat` whose `}` is not typed yet ends with its track.
+    [$.repeat_block],
   ],
 
   rules: {
@@ -177,7 +181,29 @@ module.exports = grammar({
 
     // ------------------------------------------------------------ tracks
 
-    _track_line: $ => choice($._setting_line, $.play_step, $.sweep),
+    _track_line: $ => choice($._setting_line, $.play_step, $.sweep, $.repeat_block),
+
+    // repeat 4 {
+    //   play verse
+    // }
+    //
+    // The steps are the block's children. A `repeat` still being typed — no
+    // `{` yet, or no `}` — is a block all the same, never an error.
+    repeat_block: $ => seq(
+      'repeat',
+      repeat($._item),
+      optional(seq(
+        '{',
+        repeat($._item),
+        // The steps of a block whose `}` is not typed yet are its own.
+        prec.dynamic(1, body($, $._track_line)),
+        optional(seq(
+          choice($._indent, seq(repeat1($._line_break), $._indent)),
+          '}',
+          repeat($._item),
+        )),
+      )),
+    ),
 
     // play verse x2 transpose=2 vel=0.9 | play bars=17-24 x2 | play all
     play_step: $ => seq(
@@ -195,12 +221,24 @@ module.exports = grammar({
 
     _pattern_line: $ => choice($.grid_row, $.note_line),
 
-    // kick X.....x.X.....x.
-    grid_row: $ => seq(
+    // kick X.....x.X.....x. | hat (x.)x8
+    //
+    // `C4 (…)x2` is a grid row or a line of notes by what is in the group: a
+    // grid row by a little, unless the cells are words it cannot place.
+    grid_row: $ => prec.dynamic(1, seq(
       field('voice', choice($.note, alias($.identifier, $.drum))),
-      $._grid_cell,
-      repeat(choice($._grid_cell, $.bar, $._junk)),
-    ),
+      choice($._grid_cell, alias($.grid_group, $.group)),
+      repeat($._grid_item),
+    )),
+
+    _grid_item: $ => choice($._grid_cell, alias($.grid_group, $.group), $.bar, $._junk),
+
+    // (X...x...)x4: cells played again and again.
+    grid_group: $ => prec.right(seq(
+      '(',
+      repeat($._grid_item),
+      optional(seq(')', optional(field('count', alias($._group_count, $.repeat_count))))),
+    )),
 
     _grid_cell: $ => choice($.grid_hit, $.grid_hold, $.grid_rest),
 
@@ -216,6 +254,7 @@ module.exports = grammar({
           choice(
             alias($._note_event, $.event),
             alias($._other_event, $.event),
+            $.group,
             $.bar,
             $._junk,
           ),
@@ -226,6 +265,7 @@ module.exports = grammar({
         choice(
           alias($._suffixed_event, $.event),
           alias($._other_event, $.event),
+          $.group,
           $.bar,
           $._junk,
         ),
@@ -237,9 +277,17 @@ module.exports = grammar({
       alias($._note_event, $.event),
       alias($._drum_event, $.event),
       alias($._other_event, $.event),
+      $.group,
       $.bar,
       $._junk,
     ),
+
+    // (A1:e A1 A2! C2~)x3: notes played again and again, as if written out.
+    group: $ => prec.right(seq(
+      '(',
+      repeat($._note_item),
+      optional(seq(')', optional(field('count', alias($._group_count, $.repeat_count))))),
+    )),
 
     // kick | A4
     _bare_event: $ => field('pitch', choice($.note, alias($.identifier, $.drum))),
@@ -326,6 +374,9 @@ module.exports = grammar({
     // x2 after `play`
     repeat_count: _ => token(/x[0-9]+/),
 
+    // x3 straight after a group's `)`: over a grid cell `x3`.
+    _group_count: _ => token.immediate(prec(1, /x[0-9]+/)),
+
     // C1-B3
     note_range: _ => token(new RegExp(NOTE + '-' + NOTE)),
 
@@ -343,9 +394,13 @@ module.exports = grammar({
 
     identifier: _ => /[A-Za-z0-9][A-Za-z0-9_-]*/,
 
-    // Anything the lexer cannot place otherwise; never an error.
-    _junk: $ => alias($._junk_token, $.word),
-    _junk_token: _ => token(prec(-1, /[^\s#]+/)),
+    // Anything the lexer cannot place otherwise; never an error. A bracket of
+    // a group is a word of its own, so a stray one does not swallow the `)`
+    // after it.
+    _junk: $ => $.word,
+    // Its cost makes a reading of a line with fewer words the one kept.
+    word: $ => prec.dynamic(-2, $._junk_token),
+    _junk_token: _ => token(prec(-1, choice(/[^\s#()]+/, /[()]/))),
 
     _line_break: _ => token(/\r?\n([ \t\r\f]*\n)*/),
     _indent: _ => token(/\r?\n([ \t\r\f]*\n)*[ \t\f]+/),

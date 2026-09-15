@@ -124,6 +124,60 @@
           "named": true
         },
         {
+          "type": "group",
+          "named": true
+        },
+        {
+          "type": "word",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "group",
+    "named": true,
+    "fields": {
+      "count": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "repeat_count",
+            "named": true
+          }
+        ]
+      }
+    },
+    "children": {
+      "multiple": true,
+      "required": false,
+      "types": [
+        {
+          "type": "bar",
+          "named": true
+        },
+        {
+          "type": "event",
+          "named": true
+        },
+        {
+          "type": "grid_hit",
+          "named": true
+        },
+        {
+          "type": "grid_hold",
+          "named": true
+        },
+        {
+          "type": "grid_rest",
+          "named": true
+        },
+        {
+          "type": "group",
+          "named": true
+        },
+        {
           "type": "word",
           "named": true
         }
@@ -398,6 +452,10 @@
         },
         {
           "type": "event",
+          "named": true
+        },
+        {
+          "type": "group",
           "named": true
         },
         {
@@ -756,6 +814,85 @@
         },
         {
           "type": "string",
+          "named": true
+        },
+        {
+          "type": "word",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "repeat_block",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": false,
+      "types": [
+        {
+          "type": "bar",
+          "named": true
+        },
+        {
+          "type": "fraction",
+          "named": true
+        },
+        {
+          "type": "identifier",
+          "named": true
+        },
+        {
+          "type": "note",
+          "named": true
+        },
+        {
+          "type": "note_range",
+          "named": true
+        },
+        {
+          "type": "number",
+          "named": true
+        },
+        {
+          "type": "option",
+          "named": true
+        },
+        {
+          "type": "play_step",
+          "named": true
+        },
+        {
+          "type": "range",
+          "named": true
+        },
+        {
+          "type": "reference_setting",
+          "named": true
+        },
+        {
+          "type": "repeat_block",
+          "named": true
+        },
+        {
+          "type": "repeat_count",
+          "named": true
+        },
+        {
+          "type": "setting",
+          "named": true
+        },
+        {
+          "type": "string",
+          "named": true
+        },
+        {
+          "type": "sweep",
+          "named": true
+        },
+        {
+          "type": "value_line",
           "named": true
         },
         {
@@ -1204,6 +1341,10 @@
           "named": true
         },
         {
+          "type": "repeat_block",
+          "named": true
+        },
+        {
           "type": "repeat_count",
           "named": true
         },
@@ -1353,6 +1494,19 @@
     }
   },
   {
+    "type": "word",
+    "named": true,
+    "fields": {}
+  },
+  {
+    "type": "(",
+    "named": false
+  },
+  {
+    "type": ")",
+    "named": false
+  },
+  {
     "type": ":",
     "named": false
   },
@@ -1490,6 +1644,10 @@
     "named": true
   },
   {
+    "type": "repeat",
+    "named": false
+  },
+  {
     "type": "repeat_count",
     "named": true
   },
@@ -1530,7 +1688,11 @@
     "named": true
   },
   {
-    "type": "word",
-    "named": true
+    "type": "{",
+    "named": false
+  },
+  {
+    "type": "}",
+    "named": false
   }
 ]

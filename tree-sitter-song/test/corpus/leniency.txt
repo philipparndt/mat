@@ -57,6 +57,8 @@ track t
     (value_line
       (word)
       (identifier)
+      (word)
+      (identifier)
       (word))
     (play_step
       (reference))))
@@ -114,3 +116,48 @@ instrument
   (track_block
     (number))
   (instrument_block))
+
+================================================================================
+Half-typed loops: an unclosed group, stray brackets, a repeat with no braces
+================================================================================
+
+pattern p
+  (C4 D4
+  C4)x2 )
+  kick (x.
+track t
+  repeat 2
+    play a
+  }
+
+--------------------------------------------------------------------------------
+
+(source_file
+  (pattern_block
+    (name)
+    (note_line
+      (group
+        (event
+          (note))
+        (event
+          (note))))
+    (note_line
+      (event
+        (note))
+      (word)
+      (event
+        (drum))
+      (word))
+    (grid_row
+      (drum)
+      (group
+        (grid_hit)
+        (grid_rest))))
+  (track_block
+    (name)
+    (repeat_block
+      (number))
+    (play_step
+      (reference))
+    (value_line
+      (word))))
