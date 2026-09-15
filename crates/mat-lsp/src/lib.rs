@@ -507,7 +507,25 @@ pub fn timeline(analysis: &Analysis, uri: &Url) -> Option<serde_json::Value> {
     let lines: Vec<serde_json::Value> = placements
         .lines
         .iter()
-        .map(|l| serde_json::json!({ "line": l.line.saturating_sub(1), "spans": l.spans.iter().map(|s| [s.0, s.1]).collect::<Vec<_>>() }))
+        .map(|l| {
+            let mut entry = serde_json::json!({ "line": l.line.saturating_sub(1), "spans": l.spans.iter().map(|s| [s.0, s.1]).collect::<Vec<_>>() });
+            if !l.notes.is_empty() {
+                // Columns as the protocol counts them: 0-based UTF-16 units, the
+                // note's first and the one after its last.
+                let text = analysis.text.lines().nth(l.line.saturating_sub(1)).unwrap_or("");
+                entry["passes"] = serde_json::json!(l.passes);
+                entry["notes"] = l
+                    .notes
+                    .iter()
+                    .map(|n| {
+                        let from = utf16_column(text, n.col.saturating_sub(1));
+                        let to = utf16_column(text, n.col.saturating_sub(1) + n.len);
+                        serde_json::json!([n.start, n.end, from, to])
+                    })
+                    .collect();
+            }
+            entry
+        })
         .collect();
     Some(serde_json::json!({
         "uri": uri,
@@ -804,6 +822,12 @@ master
         // `  play verse x2` is line 19 (0-based): the verse is one bar, twice.
         let play = lines.iter().find(|l| l["line"] == 19).expect("the play line is placed");
         assert_eq!(play["spans"][0][1].as_f64().unwrap() - play["spans"][0][0].as_f64().unwrap(), 4.0);
+        assert!(play.get("notes").is_none(), "a play step has no notes of its own");
+        // A pattern's line says its passes and its notes, columns 0-based.
+        let noted = lines.iter().find(|l| l.get("notes").is_some()).expect("some pattern line has notes");
+        let first = &noted["notes"][0];
+        assert!(first[3].as_u64().unwrap() > first[2].as_u64().unwrap());
+        assert!(!noted["passes"].as_array().unwrap().is_empty());
         let broken = Analysis::of(&SONG.replace("track melody", "trak melody"), a.song.clone());
         assert!(timeline(&broken, &url).is_none());
     }

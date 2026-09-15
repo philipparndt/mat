@@ -957,7 +957,7 @@ impl Parser {
                     dur = d;
                 }
                 for pitch in ev.pitches {
-                    events.push(PatternEvent { line: tok.span.line, start: pos, duration: dur, pitch, velocity: ev.velocity, accent: ev.accent, slide: ev.slide });
+                    events.push(PatternEvent { line: tok.span.line, col: tok.span.col, len: tok.span.len, start: pos, duration: dur, pitch, velocity: ev.velocity, accent: ev.accent, slide: ev.slide });
                 }
                 pos += dur;
             }
@@ -1004,7 +1004,7 @@ impl Parser {
                     held = None;
                     if let Some(velocity) = velocity {
                         held = Some(events.len());
-                        events.push(PatternEvent { line: name_tok.span.line, start: steps as f64 * step, duration: step, pitch, velocity, accent: c == 'X', slide: false });
+                        events.push(PatternEvent { line: name_tok.span.line, col: tok.span.col + ci, len: 1, start: steps as f64 * step, duration: step, pitch, velocity, accent: c == 'X', slide: false });
                     }
                     steps += 1;
                 }

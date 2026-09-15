@@ -110,6 +110,12 @@ pub struct PatternEvent {
     /// a note is, for an editor to show where in the song it sounds. Never
     /// part of a render's input, so moving a line changes nothing heard.
     pub line: usize,
+    /// Where on that line, as the parser's spans count: the 1-based character
+    /// the note's token starts at, and how many characters it is — a grid
+    /// row's one cell. For an editor to light the note while it sounds; like
+    /// `line`, never part of a render's input.
+    pub col: usize,
+    pub len: usize,
     pub start: Whole,
     pub duration: Whole,
     pub pitch: Pitch,

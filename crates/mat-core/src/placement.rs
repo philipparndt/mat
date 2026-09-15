@@ -21,6 +21,24 @@ pub struct LineSpans {
     /// 1-based, as the parser counts.
     pub line: usize,
     pub spans: Vec<(f64, f64)>,
+    /// For a line of a pattern: where each pass of the pattern starts, sorted,
+    /// in seconds. Empty for every other line.
+    pub passes: Vec<f64>,
+    /// For a line of a pattern: its notes, the same at every pass since a
+    /// song has one tempo — for an editor to light the note under the
+    /// playhead. Sorted by start; a chord's notes, sharing a token, are one.
+    pub notes: Vec<NotePlace>,
+}
+
+/// A note of a pattern's line, in seconds from the start of a pass, and the
+/// characters it is written in.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct NotePlace {
+    pub start: f64,
+    pub end: f64,
+    /// 1-based character, as the parser's spans count.
+    pub col: usize,
+    pub len: usize,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -35,6 +53,8 @@ pub struct Placements {
 pub fn placements(song: &Song) -> Placements {
     let bar = song.bar_length();
     let mut by_line: std::collections::BTreeMap<usize, Vec<(f64, f64)>> = Default::default();
+    let mut passes: std::collections::BTreeMap<usize, Vec<f64>> = Default::default();
+    let mut notes: std::collections::BTreeMap<usize, Vec<NotePlace>> = Default::default();
     let mut add = |line: usize, start: f64, end: f64| {
         if end > start {
             by_line.entry(line).or_default().push((start, end));
@@ -83,10 +103,23 @@ pub fn placements(song: &Song) -> Placements {
                         entry.0 = entry.0.min(event.start);
                         entry.1 = entry.1.max(event.start + event.duration);
                     }
+                    for event in &pat.events {
+                        let placed = notes.entry(event.line).or_default();
+                        let note = NotePlace {
+                            start: song.seconds(event.start),
+                            end: song.seconds(event.start + event.duration),
+                            col: event.col,
+                            len: event.len,
+                        };
+                        if !placed.iter().any(|n| n.col == note.col && (n.start - note.start).abs() < 1e-9) {
+                            placed.push(note);
+                        }
+                    }
                     for r in 0..*repeat {
                         let offset = cursor + pat.length * r as f64;
                         for (line, (first, last)) in &lines {
                             add(*line, song.seconds(offset + first), song.seconds(offset + last));
+                            passes.entry(*line).or_default().push(song.seconds(offset));
                         }
                         add(pat.span.line, song.seconds(offset), song.seconds(offset + pat.length));
                     }
@@ -104,11 +137,22 @@ pub fn placements(song: &Song) -> Placements {
         }
     }
 
-    let mut lines: Vec<LineSpans> = by_line.into_iter().map(|(line, spans)| LineSpans { line, spans: merged(spans) }).collect();
+    let mut lines: Vec<LineSpans> = by_line
+        .into_iter()
+        .map(|(line, spans)| {
+            let mut starts = passes.remove(&line).unwrap_or_default();
+            starts.sort_by(f64::total_cmp);
+            // Two tracks playing one pattern at once are one pass of its lines.
+            starts.dedup_by(|a, b| (*a - *b).abs() < 1e-9);
+            let mut placed = if starts.is_empty() { Vec::new() } else { notes.remove(&line).unwrap_or_default() };
+            placed.sort_by(|a, b| a.start.total_cmp(&b.start).then(a.col.cmp(&b.col)));
+            LineSpans { line, spans: merged(spans), passes: starts, notes: placed }
+        })
+        .collect();
     let seconds = lines.iter().flat_map(|l| l.spans.iter().map(|s| s.1)).fold(0.0, f64::max);
     for section in &song.sections {
         let span = (song.seconds((section.from_bar - 1.0) * bar), song.seconds(section.to_bar * bar));
-        lines.push(LineSpans { line: section.line, spans: vec![span] });
+        lines.push(LineSpans { line: section.line, spans: vec![span], passes: Vec::new(), notes: Vec::new() });
     }
     lines.sort_by_key(|l| l.line);
     Placements { seconds, bar_seconds: song.seconds(bar), lines }
@@ -203,6 +247,33 @@ track ghost
         assert_eq!(spans(&p, line_of(SONG, "section chorus bars=3-4")), vec![(4.0, 8.0)]);
         assert!(spans(&p, line_of(SONG, "track ghost")).is_empty());
         assert!(spans(&p, line_of(SONG, "  osc saw")).is_empty(), "a setting is not placed");
+    }
+
+    #[test]
+    fn a_patterns_line_knows_its_passes_and_where_each_note_is_written() {
+        let p = placements_of(SONG);
+        let at = |needle: &str| p.lines.iter().find(|l| l.line == line_of(SONG, needle)).unwrap().clone();
+        let verse = at("  C4:h D4 |");
+        assert_eq!(verse.passes, vec![0.0, 8.0], "the verse is played at 0 s and at 8 s");
+        // `C4:h` is a half note from character 3, `D4` the other half from 8.
+        assert_eq!(
+            verse.notes,
+            vec![NotePlace { start: 0.0, end: 1.0, col: 3, len: 4 }, NotePlace { start: 1.0, end: 2.0, col: 8, len: 2 }]
+        );
+        // A grid row's cells: the snare hits the third and seventh eighths,
+        // written at characters 11 and 15 of `  snare ..X...X.`.
+        let snare = at("  snare ..X...X.");
+        assert_eq!(snare.passes, vec![4.0, 6.0]);
+        assert_eq!(snare.notes.iter().map(|n| (n.start, n.col, n.len)).collect::<Vec<_>>(), vec![(0.5, 11, 1), (1.5, 15, 1)]);
+        assert!(at("track melody").notes.is_empty() && at("track melody").passes.is_empty());
+    }
+
+    #[test]
+    fn a_chord_is_one_note() {
+        let song = "tempo 120\ninstrument lead synth\n  osc saw\npattern p\n  [C4 E4 G4]:w |\ntrack t\n  instrument lead\n  play p\n";
+        let p = placements_of(song);
+        let chord = p.lines.iter().find(|l| l.line == 5).unwrap();
+        assert_eq!(chord.notes, vec![NotePlace { start: 0.0, end: 2.0, col: 3, len: 12 }]);
     }
 
     #[test]
