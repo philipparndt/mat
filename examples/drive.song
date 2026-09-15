@@ -1,0 +1,390 @@
+# Vector Drive: original driving electronic track for the game, written in
+# layers so the game can add and remove parts by scene intensity.
+# G minor, 133 BPM, chord loop Gm | Eb | F | Dm (two bars each).
+#
+# Layers (stems): pad, arp, bass, drums, lead, stabs, fx
+# Render:  mat render vector-drive.song --stems stems        (full song)
+#          mat render vector-drive-loop.song --loop --stems loop-stems
+
+title "Vector Drive"
+tempo 133
+meter 4/4
+
+section explore    bars=1-16
+section tension    bars=17-32
+section action     bars=33-64
+section breakdown  bars=65-72
+section build      bars=73-80
+section action2    bars=81-112
+section outro      bars=113-116
+
+# ------------------------------------------------------------ instruments
+
+instrument pad synth
+  osc supersaw detune=0.55 mix=0.75 level=0.8
+  osc sine octave=-1 level=0.25
+  filter lowpass cutoff=1200 res=0.15 keytrack=0.3
+  lfo filter rate=0.11 depth=0.6 fade=1
+  lfo width rate=0.07 depth=0.3
+  drift 5
+  amp attack=0.8 decay=1 sustain=0.9 release=1.5
+
+instrument pluck synth
+  osc supersaw detune=0.3 mix=0.5
+  osc square octave=1 level=0.15
+  filter lowpass cutoff=900 res=0.3 env=4 keytrack=0.5
+  amp attack=1ms decay=0.22 sustain=0 release=0.12
+  fenv attack=1ms decay=0.11 sustain=0 release=0.1
+  drift 4
+
+instrument bass synth
+  osc saw level=0.7
+  osc square level=0.35
+  osc sine octave=-1 level=0.7
+  filter lowpass cutoff=240 res=0.25 env=2.5 drive=0.45
+  amp attack=1ms decay=0.12 sustain=0.55 release=40ms
+  fenv attack=1ms decay=70ms sustain=0 release=50ms
+
+instrument sub synth
+  osc sine octave=-1
+  amp attack=3ms decay=0.1 sustain=0.9 release=60ms
+
+instrument lead synth
+  osc supersaw detune=0.55 mix=0.75
+  osc supersaw octave=1 detune=0.4 mix=0.6 level=0.3
+  osc saw octave=-1 voices=3 spread=10 level=0.3
+  filter lowpass cutoff=6000 res=0.1 env=1 keytrack=0.3
+  amp attack=8ms decay=0.4 sustain=0.8 release=0.3
+  fenv attack=1ms decay=0.3 sustain=0.4 release=0.3
+  vibrato rate=5.5 depth=8 delay=0.35
+  drift 6
+
+instrument stab synth
+  osc supersaw detune=0.45 mix=0.6
+  filter lowpass cutoff=1500 res=0.1 env=1.5
+  amp attack=2ms decay=0.15 sustain=0.4 release=60ms
+  fenv attack=1ms decay=0.1 sustain=0.2 release=50ms
+
+instrument riser synth
+  noise 0.7
+  osc supersaw detune=0.8 mix=0.9 level=0.5
+  filter bandpass cutoff=300 res=0.5
+  amp attack=13s decay=0.5 sustain=1 release=40ms
+
+instrument impact synth
+  noise 0.7
+  osc sine octave=-2 level=0.9
+  filter lowpass cutoff=160 res=0.2 env=6
+  amp attack=1ms decay=3 sustain=0 release=0.5
+  fenv attack=1ms decay=2.5 sustain=0 release=0.5
+
+instrument kit drums
+  kick decay=0.8 tune=1
+  clap decay=1.1
+  snare decay=0.7
+  hat gain=-3
+  openhat decay=0.5 gain=-1
+  ride gain=-7 decay=0.8
+  crash gain=-4
+
+# ------------------------------------------------------------ harmony
+
+pattern chords
+  [G3 Bb3 D4]:w  | [G3 Bb3 D4]:w  | [Eb3 G3 Bb3]:w | [Eb3 G3 Bb3]:w |
+  [F3 A3 C4]:w   | [F3 A3 C4]:w   | [D3 F3 A3]:w   | [D3 F3 A3]:w   |
+
+pattern chords_high
+  [G4 Bb4 D5]:w  | [G4 Bb4 D5]:w  | [Eb4 G4 Bb4]:w | [Eb4 G4 Bb4]:w |
+  [F4 A4 C5]:w   | [F4 A4 C5]:w   | [D4 F4 A4]:w   | [D4 F4 A4]:w   |
+
+# Rolling offbeat bass; the kick owns the downbeats.
+pattern bass
+  r:s G1 G1 G1 r G1 G1 G1 r G1 G1 G1 r G1 G1 G1                 |
+  r G1 G1 G1 r G1 G1 G1 r G1 G1 G1 r G1 G2! G1                  |
+  r Eb1 Eb1 Eb1 r Eb1 Eb1 Eb1 r Eb1 Eb1 Eb1 r Eb1 Eb1 Eb1       |
+  r Eb1 Eb1 Eb1 r Eb1 Eb1 Eb1 r Eb1 Eb1 Eb1 r Eb1 Eb2! Eb1      |
+  r F1 F1 F1 r F1 F1 F1 r F1 F1 F1 r F1 F1 F1                   |
+  r F1 F1 F1 r F1 F1 F1 r F1 F1 F1 r F1 F2! F1                  |
+  r D1 D1 D1 r D1 D1 D1 r D1 D1 D1 r D1 D1 D1                   |
+  r D1 D1 D1 r D1 D1 D1 r D1 D1 D1 r D2 D2 D1                   |
+
+pattern sub
+  G1:w | G1:w | Eb1:w | Eb1:w | F1:w | F1:w | D1:w | D1:w |
+
+# 16th arpeggio with accents on the chord tones that carry the movement.
+pattern arp
+  G3:s@110 Bb3@70 D4@90 G4@70 D4@100 Bb3@70 G3@90 Bb3@70 G3@110 Bb3@70 D4@90 G4@70 D4@100 Bb3@70 G3@90 D4@70        |
+  G3@110 Bb3@70 D4@90 G4@70 D4@100 Bb3@70 G3@90 Bb3@70 G3@110 Bb3@70 D4@90 G4@70 F4@100 D4@70 Bb3@90 D4@70          |
+  Eb3@110 G3@70 Bb3@90 Eb4@70 Bb3@100 G3@70 Eb3@90 G3@70 Eb3@110 G3@70 Bb3@90 Eb4@70 Bb3@100 G3@70 Eb3@90 Bb3@70    |
+  Eb3@110 G3@70 Bb3@90 Eb4@70 Bb3@100 G3@70 Eb3@90 G3@70 Eb3@110 G3@70 Bb3@90 Eb4@70 G4@100 Eb4@70 Bb3@90 G3@70     |
+  F3@110 A3@70 C4@90 F4@70 C4@100 A3@70 F3@90 A3@70 F3@110 A3@70 C4@90 F4@70 C4@100 A3@70 F3@90 C4@70               |
+  F3@110 A3@70 C4@90 F4@70 C4@100 A3@70 F3@90 A3@70 F3@110 A3@70 C4@90 F4@70 A4@100 F4@70 C4@90 A3@70               |
+  D3@110 F3@70 A3@90 D4@70 A3@100 F3@70 D3@90 F3@70 D3@110 F3@70 A3@90 D4@70 A3@100 F3@70 D3@90 A3@70               |
+  D3@110 F3@70 A3@90 D4@70 A3@100 F3@70 D3@90 F3@70 D3@110 F3@70 A3@90 D4@70 F4@100 D4@70 A3@90 F3@70               |
+
+# Offbeat stabs.
+pattern stabs
+  r:e [G3 Bb3 D4] r [G3 Bb3 D4] r [G3 Bb3 D4] r [G3 Bb3 D4]         |
+  r [G3 Bb3 D4] r [G3 Bb3 D4] r [G3 Bb3 D4] r [Bb3 D4 F4]           |
+  r [Eb3 G3 Bb3] r [Eb3 G3 Bb3] r [Eb3 G3 Bb3] r [Eb3 G3 Bb3]       |
+  r [Eb3 G3 Bb3] r [Eb3 G3 Bb3] r [Eb3 G3 Bb3] r [G3 Bb3 Eb4]       |
+  r [F3 A3 C4] r [F3 A3 C4] r [F3 A3 C4] r [F3 A3 C4]               |
+  r [F3 A3 C4] r [F3 A3 C4] r [F3 A3 C4] r [A3 C4 F4]               |
+  r [D3 F3 A3] r [D3 F3 A3] r [D3 F3 A3] r [D3 F3 A3]               |
+  r [D3 F3 A3] r [D3 F3 A3] r [D3 F3 A3] r [F3 A3 D4]               |
+
+# The hook: two bars per chord, question and answer.
+pattern lead
+  G4:e G4 D5 G4 Bb4 G4 D5:q     | F5:e D5 Bb4:q G4:h        |
+  Eb5:e Eb5 G4 Eb5 Bb4 G4 Eb5:q | D5:e C5 Bb4:q G4:h        |
+  F5:e F5 A4 F5 C5 A4 F5:q      | G5:e F5 C5:q A4:h         |
+  D5:e D5 A4 D5 F5 A4 D5:q      | F5:e E5 D5:q A4:h         |
+
+pattern lead_answer
+  G4:e G4 D5 G4 Bb4 G4 D5:q     | F5:e D5 Bb4:q G4:e Bb4 D5:q@80 |
+  Eb5:e Eb5 G4 Eb5 Bb4 G4 Eb5:q | D5:e C5 Bb4:q G4:e Bb4 Eb5:q@80 |
+  F5:e F5 A4 F5 C5 A4 F5:q      | G5:e F5 C5:q A4:e C5 F5:q@80    |
+  D5:e D5 A4 D5 F5 A4 D5:q      | F5:e E5 D5:q A4:e D5 A5:q@110   |
+
+# ------------------------------------------------------------ drums
+
+pattern shaker grid=1/16
+  hat  o.o.o.o.o.o.o.o.
+  rim  ......x.......x.
+
+pattern hats grid=1/16
+  hat     X.o.x.o.X.o.x.o.
+  openhat ..x...x...x...x.
+
+pattern half_kick grid=1/16
+  kick    X.......X.......
+  hat     X.o.x.o.X.o.x.o.
+  openhat ..x...x...x...x.
+  clap    ....x.......x...
+
+pattern beat grid=1/16
+  kick    X...X...X...X...
+  clap    ....X.......X...
+  hat     X.o.x.o.X.o.x.o.
+  openhat ..x...x...x...x.
+  ride    x...x...x...x...
+
+pattern beat_fill grid=1/16
+  kick    X...X...X...X...
+  clap    ....X.......X...
+  hat     X.o.x.o.X.o.x.o.
+  openhat ..x...x...x.....
+  snare   ............x6x9
+
+pattern beat_crash grid=1/16
+  kick    X...X...X...X...
+  clap    ....X.......X...
+  hat     X.o.x.o.X.o.x.o.
+  openhat ..x...x...x...x.
+  crash   X...............
+
+pattern roll_q grid=1/16
+  snare 3...4...4...5...
+  kick  X...............
+
+pattern roll_e grid=1/16
+  snare 5.5.6.6.6.6.7.7.
+  kick  X...............
+
+pattern roll_s grid=1/16
+  snare 6666777788889999
+
+pattern roll_up grid=1/16
+  snare 7777888899999999
+  kick  X.......X.......
+
+pattern break_hit grid=1/16
+  kick  X...............
+  crash X...............
+
+pattern impact_note
+  G2:w
+
+pattern riser_note
+  G4:8/1
+
+# ------------------------------------------------------------ arrangement
+
+track pad
+  instrument pad
+  layer pad
+  gain -6
+  reverb 0.5
+  eq lowcut=180 high=+3 highfreq=5k
+  chorus mix=0.5
+  sidechain drums depth=0.7 release=0.3
+  play chords x9
+  at 73
+  play chords_high
+  at 81
+  play chords x4
+  at 113
+  play chords_high
+
+track arp
+  instrument pluck
+  layer arp
+  gain +2
+  pan -0.2
+  reverb 0.25
+  delay 0.35
+  eq lowcut=250 high=+3 highfreq=4k
+  chorus mix=0.3
+  sidechain drums depth=0.45
+  sweep cutoff from=350 to=900 bars=1-16
+  sweep cutoff from=900 to=5000 bars=17-32
+  sweep cutoff from=900 to=6000 bars=73-80
+  play arp x2 vel=0.7
+  play arp x2
+  play arp x4
+  play arp vel=0.75
+  play arp x5
+
+track bass
+  instrument bass
+  layer bass
+  gain -7
+  eq lowcut=30
+  sidechain drums depth=0.8 release=0.25
+  at 17
+  play bass x2
+  play bass x4
+  at 73
+  play bass
+  play bass x4
+
+track sub
+  instrument sub
+  layer bass
+  gain -11
+  sidechain drums depth=0.9 release=0.2
+  at 33
+  play sub x4
+  at 81
+  play sub x4
+
+track stabs
+  instrument stab
+  layer stabs
+  gain -5
+  pan 0.15
+  reverb 0.2
+  eq lowcut=250 high=+3 highfreq=4k
+  sidechain drums depth=0.6
+  at 33
+  play stabs x4
+  at 81
+  play stabs x4
+
+track lead
+  instrument lead
+  layer lead
+  gain -5
+  reverb 0.35
+  delay 0.25
+  eq lowcut=300 mid=+2 midfreq=2k high=+5 highfreq=4k
+  chorus mix=0.25
+  sidechain drums depth=0.3
+  at 41
+  play lead
+  play lead_answer
+  play lead
+  at 65
+  play lead vel=0.6
+  at 89
+  play lead
+  play lead_answer
+  play lead
+
+track lead_low
+  instrument lead
+  layer lead
+  gain -11
+  pan -0.3
+  reverb 0.3
+  eq lowcut=150
+  sidechain drums depth=0.3
+  at 49
+  play lead_answer transpose=-12
+  at 97
+  play lead_answer transpose=-12
+
+track drums
+  instrument kit
+  layer drums
+  gain -6
+  reverb 0.06
+  eq high=+3 highfreq=7k
+  play shaker x8
+  play hats x8
+  play half_kick x8
+  play beat_crash
+  play beat x6
+  play beat_fill
+  play beat_crash
+  play beat x6
+  play beat_fill
+  play beat_crash
+  play beat x6
+  play beat_fill
+  play beat_crash
+  play beat x6
+  play beat_fill
+  play break_hit
+  rest 7
+  play roll_q x4
+  play roll_e x2
+  play roll_s
+  play roll_up
+  play beat_crash
+  play beat x6
+  play beat_fill
+  play beat_crash
+  play beat x6
+  play beat_fill
+  play beat_crash
+  play beat x6
+  play beat_fill
+  play beat_crash
+  play beat x6
+  play beat_fill
+  play break_hit
+
+track riser
+  instrument riser
+  layer fx
+  gain 0
+  reverb 0.4
+  sweep cutoff from=250 to=6000 bars=25-32
+  sweep cutoff from=250 to=6000 bars=73-80
+  at 25
+  play riser_note
+  at 73
+  play riser_note
+
+track impact
+  instrument impact
+  layer fx
+  gain -4
+  reverb 0.6
+  at 33
+  play impact_note
+  at 65
+  play impact_note
+  at 81
+  play impact_note
+  at 113
+  play impact_note
+
+master
+  gain 3
+  saturation 0.3
+  comp threshold=-14 ratio=2.5 attack=15ms release=200ms makeup=1
+  reverb size=0.85 decay=0.75 damping=0.4 predelay=25ms
+  delay time=3/16 feedback=0.38 tone=4k
+  limiter ceiling=-1
