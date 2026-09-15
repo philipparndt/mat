@@ -612,7 +612,21 @@ pub struct Track {
     pub sidechain: Option<SidechainSettings>,
     pub audio: Option<(AudioSource, Span)>,
     pub sweeps: Vec<SweepDef>,
+    /// Written out: a `repeat` block's steps are here once for every pass.
     pub steps: Vec<TrackStep>,
+    /// Where the `repeat` blocks are in `steps`. For an editor to place the
+    /// `repeat` line; `arrange` reads only the steps.
+    pub repeats: Vec<RepeatBlock>,
+}
+
+/// A `repeat N { … }` block of a track, written out: its passes are
+/// `steps[first..end]`. A block inside another is here once per outer pass.
+#[derive(Debug, Clone, PartialEq)]
+pub struct RepeatBlock {
+    /// The `repeat` keyword.
+    pub span: Span,
+    pub first: usize,
+    pub end: usize,
 }
 
 #[derive(Debug, Clone, Serialize)]

@@ -432,3 +432,88 @@ pub fn resolve_paths(timeline: &mut Timeline, song_dir: &Path) {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    /// Loops are written out by the parser, so a song with them is the song
+    /// without them to everything after it: the same timeline, the same samples.
+    #[test]
+    fn a_song_with_loops_arranges_and_renders_as_it_does_written_out() {
+        let looped = "tempo 140
+swing 0.56
+instrument acid tb303
+instrument lead synth
+  osc saw voices=2 spread=10
+  drift 6
+instrument kit drums
+pattern bass
+  (A1:s A1 A2! C2~)x2 ((E1:s G1)x4 |)x1
+pattern lead
+  (C5:e [E5 G5])x2 (D5:q)x2 |
+pattern beat grid=1/16
+  kick (X...x...)x2
+  hat  (x.)x8
+track acid
+  instrument acid
+  repeat 2 {
+    play bass
+  }
+track lead
+  instrument lead
+  humanize time=5ms vel=8
+  rest 1
+  repeat 2 {
+    repeat 2 {
+      play lead transpose=2
+    }
+    rest 1
+  }
+track drums
+  instrument kit
+  repeat 3 {
+    play beat
+  }
+";
+        let written = "tempo 140
+swing 0.56
+instrument acid tb303
+instrument lead synth
+  osc saw voices=2 spread=10
+  drift 6
+instrument kit drums
+pattern bass
+  A1:s A1 A2! C2~ A1:s A1 A2! C2~ E1:s G1 E1:s G1 E1:s G1 E1:s G1 |
+pattern lead
+  C5:e [E5 G5] C5:e [E5 G5] D5:q D5:q |
+pattern beat grid=1/16
+  kick X...x...X...x...
+  hat  x.x.x.x.x.x.x.x.
+track acid
+  instrument acid
+  play bass
+  play bass
+track lead
+  instrument lead
+  humanize time=5ms vel=8
+  rest 1
+  play lead transpose=2
+  play lead transpose=2
+  rest 1
+  play lead transpose=2
+  play lead transpose=2
+  rest 1
+track drums
+  instrument kit
+  play beat
+  play beat
+  play beat
+";
+        let arranged = |text: &str| crate::compile(text).expect("the song compiles").0;
+        let (a, b) = (arranged(looped), arranged(written));
+        assert_eq!(serde_json::to_value(&a).unwrap(), serde_json::to_value(&b).unwrap(), "the same timeline");
+        let (left, _) = crate::render(&a, 22_050, Default::default());
+        let (right, _) = crate::render(&b, 22_050, Default::default());
+        assert!(left.left.len() > 22_050 && left.rms_db() > -40.0, "a song several bars long, and heard");
+        assert!(left.left == right.left && left.right == right.right, "the same samples");
+    }
+}

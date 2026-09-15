@@ -4,6 +4,8 @@
 //! * `"..."` is a quoted string.
 //! * `|` is always its own token (bar check).
 //! * `[` ... `]` groups a chord into a single token, spaces included.
+//! * `(`, `{` and `}` are always tokens of their own, and so is `)` with the
+//!   count written straight after it: `(C4 D4)x2` is `(`, `C4`, `D4`, `)x2`.
 
 use crate::diag::{Diagnostic, Span};
 
@@ -62,11 +64,17 @@ pub fn lex_file(source: &str, file: usize, diags: &mut Vec<Diagnostic>) -> Vec<L
                 tokens.push(Token { text, span: span(line_no, start, i - start) });
                 continue;
             }
+            if matches!(c, '(' | '{' | '}') {
+                i += 1;
+                tokens.push(Token { text: c.to_string(), span: span(line_no, start, 1) });
+                continue;
+            }
             let mut depth = 0usize;
             let mut text = String::new();
             while i < chars.len() {
                 let c = chars[i];
-                if depth == 0 && (c.is_whitespace() || c == '|') {
+                let breaks = c.is_whitespace() || matches!(c, '|' | '(' | '{' | '}') || (c == ')' && i > start);
+                if depth == 0 && breaks {
                     break;
                 }
                 match c {

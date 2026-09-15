@@ -79,6 +79,7 @@ Notes are written as `<pitch>[:<duration>][@<velocity>]`.
 | Accent    | `!` at the end (tb303; also `X` in grids) | `C2:s!` |
 | Slide     | `~` at the end: glide into the next note (tb303) | `C2:s~` |
 | Bar check | `\|` fails if the bar before it is not exactly one bar long | `\|` |
+| Group     | `(…)x<n>` plays what is inside n times, as if written out (see [Loops](#loops)) | `(C4 D4)x2` |
 
 **The duration carries over** to later notes until you give a new one.
 Velocity does not carry over. Example:
@@ -290,6 +291,7 @@ track melody
 ```
 
 `play` places patterns one after another. `at` and `rest` move the position.
+`repeat 4 { … }` plays the steps inside it again and again (see [Loops](#loops)).
 
 ### Groove
 
@@ -352,6 +354,58 @@ track vocals
 
 Put the `audio` line before `play`. `play bars=` advances the position like a
 pattern; `play all` does not.
+
+## Loops
+
+Two kinds of loop keep a song short. Both are written out when the song is
+read, so a loop sounds exactly like the notes or steps it stands for, and
+renders the same samples.
+
+### Repeat groups, in patterns
+
+```
+pattern acid
+  (A1:s A1 A2! C2~)x3 E1:s G1 A1 C2 |
+pattern beat grid=1/16
+  kick (X...x...)x2
+  hat  (x.)x8
+```
+
+`(…)x<n>` plays what is inside the brackets n times in a row, as if written
+out. It works in note lines and in grid rows, and groups may nest and hold
+chords and bar lines: `((C4:s D4)x2 [E4 G4]:h. |)x4`.
+
+* **Durations carry** into and out of a group as they would written out:
+  in `C4:q (D4 E4:e)x2 F4`, the first `D4` is a quarter, the second an
+  eighth, and so is `F4`.
+* **The bar check and the pattern's length** read the written-out line, and
+  so do a grid's row lengths: `kick (x...)x4` is 16 steps.
+* A group opens and closes on one line. `x0`, a missing count after `)`, an
+  unclosed `(` and a `)` that closes nothing are errors.
+
+### Repeat blocks, in tracks
+
+```
+track bass
+  instrument acid
+  repeat 4 {
+    play verse
+    repeat 2 {
+      play fill
+    }
+    rest 1
+  }
+```
+
+`repeat <n> {` plays the steps up to its `}` n times, one after another; the
+`}` goes on a line of its own. Inside go `play` (also `play … x2`, and an audio
+track's `play bars=…`), `rest` and other `repeat` blocks. `at` is an error
+there, because it would jump back to the same bar on every pass, and so are
+the track's settings. `repeat 0` and an empty block are errors too.
+
+An editor that shows where lines are heard lights a group's note at the token
+it is written at on every pass, and a `repeat` line across all of its passes.
+See `examples/loops.song`.
 
 ## Master
 

@@ -6,6 +6,12 @@
 //! any of its steps do, an instrument's wherever a track playing it does, and
 //! a section is its bars.
 //!
+//! **Loops are written out** by the parser, so a note made by a repeat group
+//! is one of a line's notes once per repetition, each at the columns of the
+//! token it came from, and a step inside a `repeat` block is a play once per
+//! pass, at its own line. The `repeat` line itself is heard from its first
+//! pass to the end of its last (`Track::repeats` says where they are).
+//!
 //! **Kept apart from `arrange`, on purpose.** The timeline `arrange` builds is
 //! what the render cache hashes, and a source line in it would make adding a
 //! comment above a track invalidate every cached layer. So the lines live
@@ -118,7 +124,11 @@ pub fn placements(song: &Song) -> Placements {
         let mut cursor = 0.0;
         let mut heard: Vec<(f64, f64)> = Vec::new();
         let mut plays: Vec<PlayPlace> = Vec::new();
-        for step in &track.steps {
+        // Where each step starts, and whether it sounds: for the `repeat` blocks.
+        let mut starts: Vec<f64> = Vec::with_capacity(track.steps.len() + 1);
+        let mut sounds: Vec<bool> = vec![false; track.steps.len()];
+        for (index, step) in track.steps.iter().enumerate() {
+            starts.push(cursor);
             match step {
                 TrackStep::At { bar: b } => cursor = (b - 1.0) * bar,
                 TrackStep::Rest { bars } => cursor += bars * bar,
@@ -130,12 +140,14 @@ pub fn placements(song: &Song) -> Placements {
                         None => {
                             let start = song.seconds(cursor) - source.offset;
                             add((file, *line), start.max(0.0), start.max(0.0) + song.seconds(bar));
+                            sounds[index] = true;
                         }
                         Some((from, to)) => {
                             let length = (to - from + 1.0) * bar * *repeat as f64;
                             let span = (song.seconds(cursor), song.seconds(cursor + length));
                             add((file, *line), span.0, span.1);
                             heard.push(span);
+                            sounds[index] = true;
                             plays.push(PlayPlace {
                                 file,
                                 line: *line,
@@ -157,6 +169,7 @@ pub fn placements(song: &Song) -> Placements {
                     let whole = (song.seconds(cursor), song.seconds(cursor + length));
                     add((span.file, span.line), whole.0, whole.1);
                     heard.push(whole);
+                    sounds[index] = true;
                     let pattern_file = pat.span.file;
                     plays.push(PlayPlace {
                         file: span.file,
@@ -199,6 +212,14 @@ pub fn placements(song: &Song) -> Placements {
                     }
                     cursor += length;
                 }
+            }
+        }
+        starts.push(cursor);
+        // A `repeat` line is heard from its first pass to the end of its last,
+        // when anything in it sounds; its steps are placed at each pass above.
+        for block in &track.repeats {
+            if sounds[block.first..block.end].iter().any(|s| *s) {
+                add((block.span.file, block.span.line), song.seconds(starts[block.first]), song.seconds(starts[block.end]));
             }
         }
         let instrument = track.instrument.as_ref().map(|(name, _)| name.clone());
@@ -423,5 +444,63 @@ track ghost
     #[test]
     fn stretches_that_touch_are_one() {
         assert_eq!(merged(vec![(2.0, 4.0), (0.0, 2.0), (5.0, 6.0)]), vec![(0.0, 4.0), (5.0, 6.0)]);
+    }
+
+    // At 120 bpm a quarter is 0.5 s.
+    const LOOPS: &str = "tempo 120
+instrument lead synth
+  osc saw
+pattern riff
+  (C4:e D4)x2 E4:h |
+pattern hit
+  C5:w |
+track melody
+  instrument lead
+  rest 1
+  repeat 2 {
+    play riff
+    repeat 2 {
+      play hit
+    }
+  }
+  play riff
+";
+
+    #[test]
+    fn a_note_of_a_repeat_group_is_placed_at_its_token_on_every_pass() {
+        let p = placements_of(LOOPS);
+        let riff = p.lines.iter().find(|l| l.line == line_of(LOOPS, "  (C4:e D4)x2 E4:h |")).unwrap();
+        // `C4:e` is written at character 4 and `D4` at 9: each twice in a pass, in start order.
+        assert_eq!(
+            riff.notes.iter().map(|n| (n.start, n.end, n.col, n.len)).collect::<Vec<_>>(),
+            [(0.0, 0.25, 4, 4), (0.25, 0.5, 9, 2), (0.5, 0.75, 4, 4), (0.75, 1.0, 9, 2), (1.0, 2.0, 15, 4)]
+        );
+        assert_eq!(riff.passes, [2.0, 8.0, 14.0], "pattern passes, as ever: two in the repeat and the last play");
+    }
+
+    #[test]
+    fn a_repeat_line_is_heard_across_its_passes_and_its_steps_at_each() {
+        let p = placements_of(LOOPS);
+        // bar 2: riff, hit, hit; bar 5: riff, hit, hit; bar 8: riff.
+        assert_eq!(spans(&p, line_of(LOOPS, "  repeat 2 {")), [(2.0, 14.0)], "one span over both passes");
+        assert_eq!(spans(&p, line_of(LOOPS, "    repeat 2 {")), [(4.0, 8.0), (10.0, 14.0)], "the inner block, in each outer pass");
+        assert_eq!(spans(&p, line_of(LOOPS, "    play riff")), [(2.0, 4.0), (8.0, 10.0)]);
+        assert_eq!(spans(&p, line_of(LOOPS, "      play hit")), [(4.0, 8.0), (10.0, 14.0)], "touching passes are one stretch");
+        assert!(spans(&p, line_of(LOOPS, "    }")).is_empty() && spans(&p, line_of(LOOPS, "  }")).is_empty());
+        let plays: Vec<(usize, f64, f64)> = p.tracks[0].plays.iter().map(|play| (play.line, play.start, play.end)).collect();
+        let (riff, hit, last) = (line_of(LOOPS, "    play riff"), line_of(LOOPS, "      play hit"), line_of(LOOPS, "  play riff"));
+        assert_eq!(
+            plays,
+            [(riff, 2.0, 4.0), (hit, 4.0, 6.0), (hit, 6.0, 8.0), (riff, 8.0, 10.0), (hit, 10.0, 12.0), (hit, 12.0, 14.0), (last, 14.0, 16.0)],
+            "a play of a repeat block once per pass, each at its own line"
+        );
+    }
+
+    #[test]
+    fn a_repeat_of_rests_alone_is_not_heard() {
+        let text = "tempo 120\ninstrument lead synth\npattern p\n  C4:w\ntrack t\n  instrument lead\n  repeat 2 {\n    rest 1\n  }\n  play p\n";
+        let p = placements_of(text);
+        assert!(spans(&p, 7).is_empty());
+        assert_eq!(spans(&p, 10), [(4.0, 6.0)]);
     }
 }

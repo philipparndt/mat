@@ -565,6 +565,15 @@ pub fn hover(analysis: &Analysis, position: Position) -> Option<(String, Range)>
     let line = analysis.lines().get(position.line as usize)?;
     let first = line.tokens.first()?.text.as_str();
     let block = block_at(analysis.lines(), position.line as usize);
+    // The brackets of a loop say what the loop is.
+    match (&block, token.text.as_str()) {
+        (Block::Pattern, text) if text == "(" || text.starts_with(')') => return Some((format!("**{}** — {}", docs::GROUP.0, docs::GROUP.1), token_range)),
+        (Block::Track, "{" | "}") => {
+            let doc = docs::find(docs::TRACK_SETTINGS, "repeat")?;
+            return Some((format!("**repeat** — {doc}"), token_range));
+        }
+        _ => {}
+    }
     let lookup = |word: &str| -> Option<&'static str> {
         match &block {
             Block::Top => docs::find(docs::TOP_LEVEL, word).or_else(|| docs::find(docs::INSTRUMENT_KINDS, word)),
@@ -1488,5 +1497,104 @@ pattern verse
         let sent = server.notification(&change(&song, "tempo 120\n"));
         let placed = timelines_sent(&sent);
         assert!(placed.iter().any(|m| m["uri"] == serde_json::json!(kit) && m["song"] == serde_json::json!(kit)), "{placed:?}");
+    }
+
+    // MARK: - Loops
+
+    const LOOPED: &str = "tempo 120
+instrument lead synth
+pattern verse
+  (C4:e D4)x2 E4:h |
+track melody
+  instrument lead
+  repeat 2 {
+    play verse
+  }
+";
+
+    #[test]
+    fn repeat_completes_in_a_track_and_its_brackets_hover() {
+        let typed = Analysis::of(&LOOPED.replace("  repeat 2 {\n    play verse\n  }\n", "  rep"), None);
+        assert_eq!(labels(&completions(&typed, Position::new(6, 5))), ["repeat"]);
+        let pattern_line = Analysis::of(&LOOPED.replace("  (C4:e D4)x2 E4:h |", "  "), None);
+        assert!(!labels(&completions(&pattern_line, Position::new(3, 2))).contains(&"repeat"), "not in a pattern");
+
+        let a = Analysis::of(LOOPED, None);
+        assert!(a.diagnostics.is_empty(), "{:?}", a.diagnostics);
+        let (text, _) = hover(&a, Position::new(6, 3)).expect("repeat is documented");
+        assert!(text.starts_with("**repeat** — `repeat <n> {`"), "{text}");
+        let (text, range) = hover(&a, Position::new(8, 2)).expect("its closing brace says what it closes");
+        assert!(text.starts_with("**repeat**"), "{text}");
+        assert_eq!((range.start, range.end), (Position::new(8, 2), Position::new(8, 3)));
+        let (text, _) = hover(&a, Position::new(3, 2)).expect("a group's '('");
+        assert!(text.starts_with("**(…)x<n>** — Plays what is inside"), "{text}");
+        let (text, range) = hover(&a, Position::new(3, 11)).expect("a group's ')x2'");
+        assert!(text.starts_with("**(…)x<n>**"), "{text}");
+        assert_eq!((range.start.character, range.end.character), (10, 13));
+        assert!(hover(&a, Position::new(3, 4)).is_none_or(|(text, _)| !text.contains("(…)")), "a note inside a group is a note");
+    }
+
+    #[test]
+    fn names_inside_a_repeat_block_go_to_their_definitions() {
+        let a = Analysis::of(LOOPED, None);
+        let (_, target) = definition(&a, Position::new(7, 10)).expect("verse inside the block is defined");
+        assert_eq!(target.start, Position::new(2, 8));
+        let names: Vec<String> = symbols(&a).iter().map(|s| s.name.clone()).collect();
+        assert_eq!(names, ["lead", "verse", "melody"]);
+        assert_eq!(symbols(&a)[2].range.end.line, 8, "the track runs to its block's '}}'");
+    }
+
+    #[test]
+    fn a_wrong_loop_is_a_diagnostic_on_its_token() {
+        let found = |text: &str| diagnostics(&Analysis::of(text, None)).into_iter().map(|d| (d.range.start, d.range.end, d.message)).collect::<Vec<_>>();
+        let x0 = found(&LOOPED.replace("(C4:e D4)x2 E4:h |", "(C4:e D4)x0 E4:h. |"));
+        assert_eq!(x0.len(), 1, "{x0:?}");
+        assert_eq!((x0[0].0, x0[0].1), (Position::new(3, 11), Position::new(3, 13)));
+        assert!(x0[0].2.starts_with("a group played x0 is never heard\n"), "with its hint: {}", x0[0].2);
+        let unclosed = found(&LOOPED.replace("(C4:e D4)x2 E4:h |", "(C4:w |"));
+        assert_eq!(unclosed.iter().map(|d| (d.0, d.2.lines().next().unwrap())).collect::<Vec<_>>(), [(Position::new(3, 2), "unclosed '('")]);
+        let at = found(&LOOPED.replace("    play verse\n", "    at 2\n    play verse\n"));
+        assert_eq!(at.iter().map(|d| (d.0, d.1, d.2.lines().next().unwrap())).collect::<Vec<_>>(), [(Position::new(7, 4), Position::new(7, 6), "'at' inside a repeat")]);
+        let stray = found(&LOOPED.replace("  }\n", "  }\n  }\n"));
+        assert_eq!(stray.iter().map(|d| (d.0, d.2.lines().next().unwrap())).collect::<Vec<_>>(), [(Position::new(9, 2), "'}' closes no repeat")]);
+    }
+
+    /// `examples/loops.song`, as an editor is told it: a group's notes at
+    /// their tokens on every pass, and a `repeat` line across its passes.
+    #[test]
+    fn the_timeline_of_the_loops_example() {
+        let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/loops.song");
+        let text = std::fs::read_to_string(&path).expect("the example is there");
+        let at = |needle: &str| text.lines().position(|l| l == needle).expect("the line is in the example") as u64;
+        let a = Analysis::of_song(&text, &path, &|p| std::fs::read_to_string(p), None);
+        assert!(a.diagnostics.is_empty(), "{:?}", a.diagnostics);
+        let url = Url::parse("file:///tmp/loops.song").unwrap();
+        let placed = timelines(&a, &[url]).expect("the example parses").remove(0);
+        let bar = placed["barSeconds"].as_f64().unwrap();
+        let line = |needle: &str| placed["lines"].as_array().unwrap().iter().find(|l| l["line"] == at(needle)).cloned().unwrap_or_else(|| panic!("{needle} is placed"));
+        let bars = |value: &serde_json::Value| value.as_array().unwrap().iter().map(|s| ((s[0].as_f64().unwrap() / bar * 1e6).round() / 1e6, (s[1].as_f64().unwrap() / bar * 1e6).round() / 1e6)).collect::<Vec<_>>();
+
+        // The riff's line: `A1:s` at characters 3-7 three times a pass, then the turn.
+        let riff = line("  (A1:s A1 A2! C2~)x3 E2:s G2! A1 C2~ |");
+        assert_eq!(riff["passes"].as_array().unwrap().len(), 6, "riff x2, in three passes of the repeat");
+        let notes = riff["notes"].as_array().unwrap();
+        assert_eq!(notes.len(), 16);
+        let a1: Vec<f64> = notes.iter().filter(|n| n[2] == 3).map(|n| (n[0].as_f64().unwrap() / bar * 16.0).round()).collect();
+        assert_eq!(a1, [0.0, 4.0, 8.0], "in sixteenths");
+        assert!(notes.iter().filter(|n| n[2] == 3).all(|n| n[3] == 7));
+        assert!(notes.windows(2).all(|w| w[0][0].as_f64() <= w[1][0].as_f64()), "in start order");
+
+        // The acid's repeat is heard over all twelve bars; the drums' blocks from bar 3.
+        assert_eq!(bars(&line("  repeat 3 {")["spans"]), [(0.0, 12.0)]);
+        assert_eq!(bars(&line("  repeat 2 {")["spans"]), [(2.0, 10.0)]);
+        assert_eq!(bars(&line("    repeat 3 {")["spans"]), [(2.0, 5.0), (6.0, 9.0)]);
+        assert_eq!(bars(&line("    play fill")["spans"]), [(5.0, 6.0), (9.0, 10.0)]);
+        assert!(line("  repeat 3 {").get("notes").is_none());
+
+        // A play in a block is a frame once per pass, at its own line.
+        let acid = placed["tracks"].as_array().unwrap().iter().find(|t| t["name"] == "acid").unwrap();
+        let plays: Vec<(u64, f64)> = acid["plays"].as_array().unwrap().iter().map(|p| (p["line"].as_u64().unwrap(), (p["start"].as_f64().unwrap() / bar).round())).collect();
+        let (riff, lift) = (at("    play riff x2"), at("    play lift"));
+        assert_eq!(plays, [(riff, 0.0), (lift, 2.0), (riff, 4.0), (lift, 6.0), (riff, 8.0), (lift, 10.0)]);
     }
 }

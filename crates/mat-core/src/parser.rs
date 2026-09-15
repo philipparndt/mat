@@ -360,6 +360,27 @@ struct Parser {
     song: Song,
 }
 
+/// The most steps a track's `repeat` blocks may write out.
+const MOST_STEPS: usize = 100_000;
+
+/// A `repeat N {` of a track being read: the steps of one pass so far.
+struct Repeat {
+    keyword: Span,
+    /// The `{`, when it is written: one that is not is said so already.
+    brace: Option<Span>,
+    count: u32,
+    steps: Vec<TrackStep>,
+    repeats: Vec<RepeatBlock>,
+}
+
+/// Adds a step to the innermost open `repeat`, or to the track.
+fn step(open: &mut [Repeat], steps: &mut Vec<TrackStep>, step: TrackStep) {
+    match open.last_mut() {
+        Some(repeat) => repeat.steps.push(step),
+        None => steps.push(step),
+    }
+}
+
 impl Parser {
     fn err(&mut self, span: Span, msg: impl Into<String>) {
         self.diags.push(Diagnostic::error(span, msg));
@@ -1172,8 +1193,9 @@ impl Parser {
         let mut pos: Whole = 0.0;
         let mut last_bar_line: Whole = 0.0;
         let mut dur: Whole = 0.25;
+        let reported = self.diags.len();
         for line in &block.body {
-            for tok in &line.tokens {
+            for tok in &self.written_out(&line.tokens) {
                 if tok.text == "|" {
                     let len = pos - last_bar_line;
                     if (len - bar).abs() > EPS && pos > EPS {
@@ -1197,12 +1219,14 @@ impl Parser {
                 pos += dur;
             }
         }
+        self.dedup_diagnostics(reported);
         Some((events, pos))
     }
 
     fn grid_body(&mut self, block: &Block, step: Whole) -> Option<(Vec<PatternEvent>, Whole)> {
         let mut events = Vec::new();
         let mut row_len: Option<(usize, &str)> = None;
+        let reported = self.diags.len();
         for line in &block.body {
             let name_tok = &line.tokens[0];
             let Some(pitch) = parse_pitch(&name_tok.text) else {
@@ -1211,7 +1235,7 @@ impl Parser {
             };
             let mut steps = 0usize;
             let mut held: Option<usize> = None; // index into events of the note that '=' extends
-            for tok in &line.tokens[1..] {
+            for tok in &self.written_out(&line.tokens[1..]) {
                 if tok.text == "|" {
                     continue;
                 }
@@ -1254,8 +1278,86 @@ impl Parser {
                 _ => {}
             }
         }
+        self.dedup_diagnostics(reported);
         let steps = row_len.map_or(0, |(n, _)| n);
         Some((events, steps as f64 * step))
+    }
+
+    /// A pattern line's tokens with its repeat groups written out: `(C4 D4)x2`
+    /// is `C4 D4 C4 D4`, each token keeping the span it is written at, so a
+    /// note made by a group is placed at its token on every pass.
+    fn written_out(&mut self, tokens: &[Token]) -> Vec<Token> {
+        let mut at = 0;
+        self.group(tokens, &mut at, None).0
+    }
+
+    /// The tokens from `at` to the `)` that closes `open`, or to the end of
+    /// the line, written out; and that `)` when there is one.
+    fn group<'t>(&mut self, tokens: &'t [Token], at: &mut usize, open: Option<&Token>) -> (Vec<Token>, Option<&'t Token>) {
+        const MOST: usize = 100_000;
+        let mut out = Vec::new();
+        while let Some(tok) = tokens.get(*at) {
+            *at += 1;
+            if tok.text == "(" {
+                let (inner, close) = self.group(tokens, at, Some(tok));
+                let Some(close) = close else {
+                    // Unclosed, and said so: once, as written.
+                    out.extend(inner);
+                    continue;
+                };
+                if inner.is_empty() {
+                    self.err_hint(tok.span, "an empty group plays nothing", "put notes in it, like (C4 D4)x2, or delete it");
+                }
+                let count = self.group_count(close);
+                if out.len() + inner.len() * count > MOST {
+                    self.err_hint(close.span, format!("this group writes out more than {MOST} notes and cells"), "repeat the pattern with play … x<count> instead");
+                    continue;
+                }
+                for _ in 0..count {
+                    out.extend(inner.iter().cloned());
+                }
+            } else if tok.text.starts_with(')') {
+                if open.is_some() {
+                    return (out, Some(tok));
+                }
+                self.err_hint(tok.span, "')' closes no group", "a group opens with '(': (C4 D4)x2");
+            } else {
+                out.push(tok.clone());
+            }
+        }
+        if let Some(open) = open {
+            self.err_hint(open.span, "unclosed '('", "close the group on the same line and say how often it plays: (C4 D4)x2");
+        }
+        (out, None)
+    }
+
+    /// How often a group plays, from its closing `)x<count>`; 1 when that is wrong, and said so.
+    fn group_count(&mut self, close: &Token) -> usize {
+        let written = &close.text[1..];
+        let count_span = Span { col: close.span.col + 1, len: close.span.len.saturating_sub(1), ..close.span };
+        match written.strip_prefix('x').and_then(|n| n.parse::<u32>().ok()) {
+            Some(0) => self.err_hint(count_span, "a group played x0 is never heard", "play it x1 or more, or delete it"),
+            Some(n) => return n as usize,
+            None if written.is_empty() => self.err_hint(close.span, "missing count after ')'", "say how often the group plays: (C4 D4)x2"),
+            None => self.err_hint(count_span, format!("invalid count '{written}'"), "a group's count is x and a number: (C4 D4)x2"),
+        }
+        1
+    }
+
+    /// Drops the diagnostics after `from` that repeat an earlier one: a
+    /// problem inside a repeat group is met on every pass, and said once.
+    fn dedup_diagnostics(&mut self, from: usize) {
+        let mut seen: Vec<(Span, String)> = Vec::new();
+        let mut index = from;
+        while index < self.diags.len() {
+            let key = (self.diags[index].span, self.diags[index].message.clone());
+            if seen.contains(&key) {
+                self.diags.remove(index);
+            } else {
+                seen.push(key);
+                index += 1;
+            }
+        }
     }
 
     fn event_token(&mut self, tok: &Token) -> Option<EventToken> {
@@ -1356,10 +1458,78 @@ impl Parser {
             audio: None,
             sweeps: Vec::new(),
             steps: Vec::new(),
+            repeats: Vec::new(),
         };
+        // The `repeat` blocks open around the line being read, innermost last.
+        let mut open: Vec<Repeat> = Vec::new();
         for line in &block.body {
             let kw = &line.tokens[0];
+            if !open.is_empty() && !matches!(kw.text.as_str(), "play" | "rest" | "at" | "repeat" | "}") {
+                self.err_hint(
+                    kw.span,
+                    format!("'{}' cannot be repeated", kw.text),
+                    "a repeat block holds play, rest and repeat; set the track's settings outside it",
+                );
+                continue;
+            }
             match kw.text.as_str() {
+                "repeat" => {
+                    let count = self.arg(line, 1, "how often to repeat, such as 4").and_then(|t| match t.text.parse::<u32>() {
+                        Ok(0) => {
+                            self.err_hint(t.span, "repeat 0 plays nothing", "repeat 1 or more times, or delete the block");
+                            None
+                        }
+                        Ok(n) => Some(n),
+                        Err(_) => {
+                            self.err_hint(t.span, format!("invalid count '{}'", t.text), "write how often the block plays: repeat 4 {");
+                            None
+                        }
+                    });
+                    let brace = match line.tokens.get(2) {
+                        Some(t) if t.text == "{" => Some(t),
+                        Some(t) => {
+                            self.err_hint(t.span, format!("expected '{{', found '{}'", t.text), "write: repeat 4 {, the steps below, and } on a line of its own");
+                            None
+                        }
+                        None if line.tokens.len() == 2 => {
+                            let last = line.tokens[1].span;
+                            self.err_hint(Span { col: last.col + last.len, len: 1, ..last }, "missing '{'", "write: repeat 4 {, the steps below, and } on a line of its own");
+                            None
+                        }
+                        None => None,
+                    };
+                    if let Some(t) = line.tokens.get(3) {
+                        self.err_hint(t.span, format!("unexpected '{}'", t.text), "the steps go on the lines below the '{', and '}' on a line of its own");
+                    }
+                    // Opened even when it is wrong, so its '}' has something to close.
+                    open.push(Repeat { keyword: kw.span, brace: brace.map(|t| t.span), count: count.unwrap_or(1), steps: Vec::new(), repeats: Vec::new() });
+                }
+                "}" => {
+                    self.extra_tokens(line, 1);
+                    let Some(done) = open.pop() else {
+                        self.err_hint(kw.span, "'}' closes no repeat", "a repeat block opens with: repeat 4 {");
+                        continue;
+                    };
+                    if done.steps.is_empty() {
+                        self.err_hint(done.keyword, "an empty repeat plays nothing", "put play or rest steps between '{' and '}', or delete the block");
+                        continue;
+                    }
+                    let (steps, repeats) = match open.last_mut() {
+                        Some(outer) => (&mut outer.steps, &mut outer.repeats),
+                        None => (&mut track.steps, &mut track.repeats),
+                    };
+                    if steps.len() + done.steps.len() * done.count as usize > MOST_STEPS {
+                        self.err_hint(done.keyword, format!("this repeat writes out more than {MOST_STEPS} steps"), "repeat a longer pattern, or play … x<count>");
+                        continue;
+                    }
+                    let first = steps.len();
+                    for _ in 0..done.count {
+                        let offset = steps.len();
+                        repeats.extend(done.repeats.iter().map(|r| RepeatBlock { span: r.span, first: r.first + offset, end: r.end + offset }));
+                        steps.extend(done.steps.iter().cloned());
+                    }
+                    repeats.push(RepeatBlock { span: done.keyword, first, end: steps.len() });
+                }
                 "instrument" => {
                     if let Some(t) = self.arg(line, 1, "instrument name") {
                         track.instrument = Some((t.text.clone(), t.span));
@@ -1375,8 +1545,11 @@ impl Parser {
                         "delay" => set(&mut track.delay, self.value(t, &t.text, 0.0, 1.0)),
                         "rest" => {
                             if let Some(bars) = self.number(t, 0.0, 10_000.0) {
-                                track.steps.push(TrackStep::Rest { bars });
+                                step(&mut open, &mut track.steps, TrackStep::Rest { bars });
                             }
+                        }
+                        "at" if !open.is_empty() => {
+                            self.err_hint(kw.span, "'at' inside a repeat", "it would jump back to the same bar on every pass; put it before the repeat, and move within it with rest");
                         }
                         "at" => {
                             if let Some(bar) = self.number(t, 1.0, 10_000.0) {
@@ -1530,7 +1703,7 @@ impl Parser {
                         self.err_hint(kw.span, "missing what to play", "write: play all, or play bars=17-24");
                         continue;
                     }
-                    track.steps.push(TrackStep::PlayAudio { bars, repeat, line: kw.span.line });
+                    step(&mut open, &mut track.steps, TrackStep::PlayAudio { bars, repeat, line: kw.span.line });
                 }
                 "play" => {
                     let Some(t) = self.arg(line, 1, "pattern name") else { continue };
@@ -1548,15 +1721,18 @@ impl Parser {
                             self.err_hint(tok.span, format!("unexpected '{}'", tok.text), "play options: x<count>, transpose=<semitones>, vel=<scale>");
                         }
                     }
-                    track.steps.push(TrackStep::Play { pattern: t.text.clone(), span: t.span, repeat, transpose, velocity });
+                    step(&mut open, &mut track.steps, TrackStep::Play { pattern: t.text.clone(), span: t.span, repeat, transpose, velocity });
                 }
                 other => self.unknown_keyword(
                     kw,
                     other,
                     "tracks",
-                    &["instrument", "audio", "layer", "gain", "pan", "reverb", "delay", "eq", "comp", "chorus", "phaser", "sidechain", "sweep", "swing", "humanize", "seed", "mute", "play", "rest", "at"],
+                    &["instrument", "audio", "layer", "gain", "pan", "reverb", "delay", "eq", "comp", "chorus", "phaser", "sidechain", "sweep", "swing", "humanize", "seed", "mute", "play", "rest", "at", "repeat"],
                 ),
             }
+        }
+        for brace in open.iter().rev().filter_map(|r| r.brace) {
+            self.err_hint(brace, "unclosed repeat", "close the block with '}' on a line of its own, below its steps");
         }
         match (&track.instrument, &track.audio) {
             (None, None) => self.err_hint(track.span, format!("track '{}' has no instrument", track.name), "add an indented line: instrument <name>, or audio \"<file>\""),
@@ -2149,5 +2325,159 @@ track stem
         let src = "instrument a synth\n  filter lowpass cutof=100\n";
         let (_, diags) = parse(src);
         assert_eq!(diags[0].hint.as_deref(), Some("did you mean 'cutoff'?"));
+    }
+
+    // MARK: loops
+
+    /// A pattern's events as the render sees them: without where they are written.
+    fn heard(pattern: &Pattern) -> Vec<(f64, f64, Pitch, f32, bool, bool)> {
+        pattern.events.iter().map(|e| (e.start, e.duration, e.pitch, e.velocity, e.accent, e.slide)).collect()
+    }
+
+    fn pattern_of(text: &str) -> Pattern {
+        let (song, diags) = parse(text);
+        assert!(diags.is_empty(), "{diags:?}");
+        song.expect("parses").patterns.remove(0)
+    }
+
+    #[test]
+    fn a_group_in_a_melodic_line_is_played_as_if_written_out() {
+        let looped = pattern_of("pattern p\n  (A1:e A1 A2! C2~)x2 | r:w |\n");
+        let written = pattern_of("pattern p\n  A1:e A1 A2! C2~ A1:e A1 A2! C2~ | r:w |\n");
+        assert_eq!(heard(&looped), heard(&written));
+        assert_eq!((looped.length, looped.events.len()), (2.0, 8));
+        // Each note keeps the columns of the token it came from: `A2!` at 11, on both passes.
+        let cols: Vec<(usize, usize)> = looped.events.iter().map(|e| (e.col, e.len)).collect();
+        assert_eq!(cols, [(4, 4), (9, 2), (12, 3), (16, 3), (4, 4), (9, 2), (12, 3), (16, 3)]);
+        assert_eq!(looped.events[4].start, 0.5, "the second pass starts after four eighths");
+    }
+
+    #[test]
+    fn durations_carry_into_and_out_of_a_group_as_written_out() {
+        let looped = pattern_of("pattern p\n  C4:q (D4 E4:e)x2 F4 G4:h\n");
+        let written = pattern_of("pattern p\n  C4:q D4 E4:e D4 E4:e F4 G4:h\n");
+        assert_eq!(heard(&looped), heard(&written));
+        // D4 carries the quarter in, then the eighth from E4 on its second pass; F4 carries it out.
+        let durations: Vec<f64> = looped.events.iter().map(|e| e.duration).collect();
+        assert_eq!(durations, [0.25, 0.25, 0.125, 0.125, 0.125, 0.125, 0.5]);
+    }
+
+    #[test]
+    fn groups_nest_and_hold_bar_lines_and_chords() {
+        let looped = pattern_of("pattern p\n  ((C4:s D4)x2 [E4 G4]:h. |)x2\n");
+        let written = pattern_of("pattern p\n  C4:s D4 C4 D4 [E4 G4]:h. | C4:s D4 C4 D4 [E4 G4]:h. |\n");
+        assert_eq!(heard(&looped), heard(&written));
+        assert_eq!(looped.length, 2.0);
+        let bars = pattern_of("pattern p\n  (C4:q D4 E4 F4 |)x3\n");
+        assert_eq!((bars.length, bars.events.len()), (3.0, 12));
+    }
+
+    #[test]
+    fn the_bar_check_reads_the_written_out_line_and_says_so_once() {
+        let (song, diags) = parse("pattern p\n  (C4:q D4 E4 |)x3\n");
+        assert!(song.is_none());
+        assert_eq!(diags.len(), 1, "one '|', one problem, though it is met three times: {diags:?}");
+        assert!(diags[0].message.contains("bar check failed"));
+        assert_eq!((diags[0].span.line, diags[0].span.col), (2, 15));
+        // A bar written in two groups is one bar.
+        let (_, diags) = parse("pattern p\n  (C4:h)x2 | (D4:q)x4 |\n");
+        assert!(diags.is_empty(), "{diags:?}");
+    }
+
+    #[test]
+    fn a_group_in_a_grid_row_is_its_cells_written_out() {
+        let looped = pattern_of("pattern beat grid=1/16\n  kick (X...x...)x2\n  hat  (x.)x8\n");
+        let written = pattern_of("pattern beat grid=1/16\n  kick X...x...X...x...\n  hat  x.x.x.x.x.x.x.x.\n");
+        assert_eq!(heard(&looped), heard(&written));
+        assert_eq!(looped.length, 1.0);
+        let kicks: Vec<(f64, usize)> = looped.events.iter().filter(|e| e.line == 2).map(|e| (e.start, e.col)).collect();
+        assert_eq!(kicks, [(0.0, 9), (0.25, 13), (0.5, 9), (0.75, 13)], "a cell keeps its column on every pass");
+        // Rows are compared written out: 16 steps against 12 is still an error.
+        let (_, diags) = parse("pattern beat grid=1/16\n  kick (x...)x4\n  hat (x.)x6\n");
+        assert!(diags.iter().any(|d| d.message.contains("has 12 steps but row 'kick' has 16")), "{diags:?}");
+        // A hold carries across the group's edges as it would written out.
+        assert_eq!(heard(&pattern_of("pattern p grid=1/8\n  C4 (x=)x2 ..\n")), heard(&pattern_of("pattern p grid=1/8\n  C4 x=x= ..\n")));
+    }
+
+    #[test]
+    fn a_wrong_group_is_an_error_on_its_token() {
+        let at = |text: &str| {
+            let (song, diags) = parse(text);
+            assert!(song.is_none(), "{text}");
+            diags.iter().map(|d| (d.message.clone(), d.span.col, d.span.len, d.hint.is_some())).collect::<Vec<_>>()
+        };
+        assert_eq!(at("pattern p\n  (C4:w)x0\n"), [("a group played x0 is never heard".into(), 9, 2, true)]);
+        assert_eq!(at("pattern p\n  (C4:w) |\n"), [("missing count after ')'".into(), 8, 1, true)]);
+        assert_eq!(at("pattern p\n  (C4:w)y2\n"), [("invalid count 'y2'".into(), 9, 2, true)]);
+        assert_eq!(at("pattern p\n  (C4:w\n"), [("unclosed '('".into(), 3, 1, true)]);
+        assert_eq!(at("pattern p\n  C4:w)x2\n"), [("')' closes no group".into(), 7, 3, true)]);
+        assert_eq!(at("pattern p grid\n  kick (x...x...\n"), [("unclosed '('".into(), 8, 1, true)]);
+        assert_eq!(at("pattern p\n  ()x2 C4:w\n"), [("an empty group plays nothing".into(), 3, 1, true)]);
+    }
+
+    fn track_of(text: &str) -> Track {
+        let (song, diags) = parse(text);
+        assert!(diags.is_empty(), "{diags:?}");
+        song.expect("parses").tracks.remove(0)
+    }
+
+    /// A track's steps, briefly: `a` for `play a`, `r1` for `rest 1`.
+    fn steps(track: &Track) -> Vec<String> {
+        track
+            .steps
+            .iter()
+            .map(|s| match s {
+                TrackStep::Play { pattern, repeat, .. } if *repeat > 1 => format!("{pattern}x{repeat}"),
+                TrackStep::Play { pattern, .. } => pattern.clone(),
+                TrackStep::PlayAudio { bars, .. } => format!("audio{bars:?}"),
+                TrackStep::Rest { bars } => format!("r{bars}"),
+                TrackStep::At { bar } => format!("at{bar}"),
+            })
+            .collect()
+    }
+
+    const LOOPS_HEADER: &str = "instrument lead synth\npattern a\n  C4:w\npattern b\n  D4:w\n";
+
+    #[test]
+    fn a_repeat_block_is_its_steps_written_out() {
+        let text = format!("{LOOPS_HEADER}track t\n  instrument lead\n  play a\n  repeat 3 {{\n    play b x2\n    rest 1\n  }}\n  play a\n");
+        let track = track_of(&text);
+        assert_eq!(steps(&track), ["a", "bx2", "r1", "bx2", "r1", "bx2", "r1", "a"]);
+        assert_eq!(track.repeats, [RepeatBlock { span: Span { file: 0, line: 9, col: 3, len: 6 }, first: 1, end: 7 }]);
+        // Each written-out play is where its line is.
+        let lines: Vec<usize> = track.steps.iter().filter_map(|s| if let TrackStep::Play { span, .. } = s { Some(span.line) } else { None }).collect();
+        assert_eq!(lines, [8, 10, 10, 10, 13]);
+    }
+
+    #[test]
+    fn repeat_blocks_nest() {
+        let text = format!("{LOOPS_HEADER}track t\n  instrument lead\n  repeat 2 {{\n    play a\n    repeat 3 {{\n      play b\n    }}\n  }}\n");
+        let track = track_of(&text);
+        assert_eq!(steps(&track), ["a", "b", "b", "b", "a", "b", "b", "b"]);
+        let blocks: Vec<(usize, usize, usize)> = track.repeats.iter().map(|r| (r.span.line, r.first, r.end)).collect();
+        assert_eq!(blocks, [(10, 1, 4), (10, 5, 8), (8, 0, 8)], "the inner block once per outer pass, then the outer");
+    }
+
+    #[test]
+    fn an_audio_track_repeats_its_plays() {
+        let text = "track v\n  audio \"v.wav\"\n  repeat 2 {\n    play bars=1-2 x2\n    play all\n  }\n";
+        assert_eq!(steps(&track_of(text)), ["audioSome((1.0, 2.0))", "audioNone", "audioSome((1.0, 2.0))", "audioNone"]);
+    }
+
+    #[test]
+    fn a_wrong_repeat_is_an_error_on_its_token() {
+        let at = |body: &str| {
+            let (song, diags) = parse(&format!("{LOOPS_HEADER}track t\n  instrument lead\n{body}"));
+            assert!(song.is_none(), "{body}");
+            diags.iter().map(|d| (d.message.clone(), d.span.line, d.span.col, d.hint.is_some())).collect::<Vec<_>>()
+        };
+        assert_eq!(at("  repeat 2 {\n    at 3\n    play a\n  }\n"), [("'at' inside a repeat".into(), 9, 5, true)]);
+        assert_eq!(at("  repeat 0 {\n    play a\n  }\n"), [("repeat 0 plays nothing".into(), 8, 10, true)]);
+        assert_eq!(at("  repeat 2 {\n  }\n"), [("an empty repeat plays nothing".into(), 8, 3, true)]);
+        assert_eq!(at("  repeat 2\n    play a\n  }\n"), [("missing '{'".into(), 8, 11, true)]);
+        assert_eq!(at("  play a\n  }\n"), [("'}' closes no repeat".into(), 9, 3, true)]);
+        assert_eq!(at("  repeat 2 {\n    play a\n"), [("unclosed repeat".into(), 8, 12, true)]);
+        assert_eq!(at("  repeat 2 {\n    gain 3\n    play a\n  }\n"), [("'gain' cannot be repeated".into(), 9, 5, true)]);
+        assert_eq!(at("  repeat many {\n    play a\n  }\n"), [("invalid count 'many'".into(), 8, 10, true)]);
     }
 }

@@ -40,6 +40,12 @@ pub const PATTERN_HEADER: &[Doc] = &[
     ("pedal", "Hold every note until the end of its bar, like a sustain pedal lifted on each chord."),
 ];
 
+/// A repeat group in a pattern line, by how it is written.
+pub const GROUP: Doc = (
+    "(…)x<n>",
+    "Plays what is inside the brackets n times in a row, as if written out: `(A1:s A1 A2! C2~)x3`, `hat (x.)x8`. Groups may nest and hold chords and bar lines; durations carry into and out of them.",
+);
+
 pub const SYNTH_SETTINGS: &[Doc] = &[
     ("osc", "An oscillator: `osc <sine|triangle|saw|square|supersaw> level= octave= semi= detune= voices= spread= width= pw= fm= fmratio= fmenv=`. One line per oscillator."),
     ("noise", "White noise level, 0 to 1."),
@@ -196,6 +202,7 @@ pub const TRACK_SETTINGS: &[Doc] = &[
     ("at", "Jump to a bar: `at 5`."),
     ("play", "`play <pattern> [x2] [transpose=] [vel=]`; audio tracks: `play bars=17-24 x2` or `play all`."),
     ("rest", "Skip bars: `rest 4`."),
+    ("repeat", "`repeat <n> {` plays the steps up to its `}` n times, one after another: `play`, `rest` and other `repeat` blocks, but not `at`."),
     ("mute", "Rendered silent; still triggers sidechains."),
     ("layer", "Stem group for `mat render --stems`; defaults to the track name."),
     ("swing", "`swing 0.62 grid=1/8`: overrides the song's swing on this track."),

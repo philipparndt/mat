@@ -1,0 +1,72 @@
+# Loops — a short acid groove written with repeat groups and repeat blocks.
+# (…)x<n> repeats notes or grid cells inside a pattern line;
+# repeat <n> { … } repeats the steps of a track.
+
+title "Loops"
+tempo 126
+meter 4/4
+
+instrument acid tb303
+  wave saw
+  cutoff 0.3
+  resonance 0.75
+  envmod 0.5
+  decay 0.35
+  accent 0.8
+  drive 0.3
+
+instrument kit drums
+  kick decay=0.9
+  hat gain=-4
+
+instrument pad preset dream-pad
+
+# Three times the same four sixteenths, then a turn.
+pattern riff
+  (A1:s A1 A2! C2~)x3 E2:s G2! A1 C2~ |
+
+# The riff with its turn an octave up: two bars, written as one group.
+pattern lift
+  ((A1:s A1 A2! C2~)x3 E3:s G2! A2 C3~ |)x2
+
+pattern beat grid=1/16
+  kick (X...)x4
+  clap (....x...)x2
+  hat  (..x.)x4
+
+pattern fill grid=1/16
+  kick (X.)x4 (x...)x2
+  clap ........ (x.)x4
+
+pattern chords
+  [A3 C4 E4]:w | [F3 A3 C4]:w |
+
+track acid
+  instrument acid
+  gain -4
+  delay 0.15
+  repeat 3 {
+    play riff x2
+    play lift
+  }
+  sweep cutoff from=0.3 to=0.6 bars=5-12
+
+track drums
+  instrument kit
+  at 3
+  repeat 2 {
+    repeat 3 {
+      play beat
+    }
+    play fill
+  }
+  play beat x2
+
+track pad
+  instrument pad
+  gain -12
+  reverb 0.4
+  at 5
+  repeat 4 {
+    play chords
+  }
