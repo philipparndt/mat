@@ -307,7 +307,7 @@ impl Player {
         self.made += 1;
         // Written the way the trim reads it: it stops at the first sample from
         // the end that is not under `SILENT`, and a NaN is not under it.
-        if !(s.abs() < SILENT) {
+        if s.is_nan() || s.abs() >= SILENT {
             self.loud = self.made;
         }
         s

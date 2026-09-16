@@ -756,20 +756,19 @@ pub(crate) fn render_track(track: &TimelineTrack, sr: f32) -> Option<Result<Vec<
 /// function of its own note — a tb303 — is rendered whole: more than was
 /// asked for is always right, less is not.
 pub(crate) fn render_track_before(track: &TimelineTrack, sr: f32, until: f64) -> Option<Result<Vec<StereoClip>, String>> {
-    let kept = |note: &&TimedNote| note.start < until;
     match &track.instrument {
         InstrumentKind::Sampler(def) => Some(
             Sampler::load(std::path::Path::new(&def.load))
                 .and_then(|sampler| sampler.prepare(&track.notes, def, sr))
-                .map(|prepared| track.notes.par_iter().enumerate().filter(|(_, n)| kept(&n)).flat_map_iter(|(i, note)| prepared.render_note(i, note)).collect()),
+                .map(|prepared| track.notes.par_iter().enumerate().filter(|(_, n)| n.start < until).flat_map_iter(|(i, note)| prepared.render_note(i, note)).collect()),
         ),
         InstrumentKind::Samples(def) => Some(
             Sampler::from_zones(&def.zones)
                 .and_then(|sampler| sampler.prepare(&track.notes, &def.settings, sr))
-                .map(|prepared| track.notes.par_iter().enumerate().filter(|(_, n)| kept(&n)).flat_map_iter(|(i, note)| prepared.render_note(i, note)).collect()),
+                .map(|prepared| track.notes.par_iter().enumerate().filter(|(_, n)| n.start < until).flat_map_iter(|(i, note)| prepared.render_note(i, note)).collect()),
         ),
         InstrumentKind::Scratch(def) if def.source_track.is_none() => {
-            let notes: Vec<TimedNote> = track.notes.iter().filter(|n| kept(&n)).cloned().collect();
+            let notes: Vec<TimedNote> = track.notes.iter().filter(|n| n.start < until).cloned().collect();
             Some(crate::instruments::scratch::render(def, &notes, sr))
         }
         InstrumentKind::Scratch(_) => None,
@@ -778,7 +777,7 @@ pub(crate) fn render_track_before(track: &TimelineTrack, sr: f32, until: f64) ->
                 .notes
                 .par_iter()
                 .enumerate()
-                .filter(|(_, n)| kept(&n))
+                .filter(|(_, n)| n.start < until)
                 .map(|(i, note)| {
                     // Portamento glides from the last note that started before this one.
                     let from = if def.glide > 0.0 {
@@ -795,7 +794,7 @@ pub(crate) fn render_track_before(track: &TimelineTrack, sr: f32, until: f64) ->
                 .notes
                 .par_iter()
                 .enumerate()
-                .filter(|(_, n)| kept(&n))
+                .filter(|(_, n)| n.start < until)
                 .map(|(i, note)| {
                     let Pitch::Drum(kind) = note.pitch else { unreachable!() };
                     let choke = (kind == DrumKind::OpenHat)
