@@ -34,10 +34,13 @@
 //! and carries across a boundary like the master's own effects do. Nor is a
 //! CLAP plugin, which is asked for blocks of 256 frames and keeps its own
 //! state between them — so it is asked for the blocks the stretch needs and no
-//! more, on the one thread it is played from. What is left, and is rendered in
-//! full before the first stretch, is a scratch track, which cuts its record
-//! out of a file or another track, and the tracks it cuts from. So is an Audio
-//! Unit track, whose audio another process has already rendered.
+//! more, on the one thread it is played from. A scratch track's moves are each
+//! a function of their note and of the record under the needle, so they are
+//! cut when their bar is reached; what is made first is the *record*, read out
+//! of a file or cut out of another track — and that track is then rendered
+//! before the first stretch, but only as far as the record reaches, which is a
+//! bar or two of it. An Audio Unit track is the one thing here that is whole
+//! before any of this: another process rendered it.
 
 use std::collections::HashMap;
 
@@ -153,6 +156,8 @@ enum Voices {
     /// One voice running the length of the track, a stretch of samples at a
     /// time, carrying its filter, slide and envelopes across the boundary.
     Tb303(Box<crate::instruments::tb303::Player>),
+    /// A move at a time, cut out of a record that is already on the deck.
+    Scratch(Box<crate::instruments::scratch::Record>),
     /// Rendered before the first stretch; nothing left to make.
     Ready,
 }
@@ -396,122 +401,59 @@ impl<'a> Stream<'a> {
             }
         }
 
-        // A scratch track cuts its record out of another track, so that track
-        // has to be there whole before the first stretch — and so does every
-        // track when the record is the mix.
-        let mut eager = vec![false; timeline.tracks.len()];
+        // A scratch track cuts its record out of another track, and the record
+        // has to be whole before the first move is cut. Only as far as the
+        // record reaches, though: it is a bar or two, and a note of the source
+        // track that starts after the end of it puts no sample inside it. So
+        // this is where each source track has to be rendered to, in seconds,
+        // and not one note further. The record is the mix when the source is
+        // "mix", which is every track that is not itself a scratch.
+        let mut record_until: Vec<Option<f64>> = vec![None; timeline.tracks.len()];
         for (ti, track) in timeline.tracks.iter().enumerate() {
-            if !needed[ti] {
+            if !needed[ti] || track.silent {
                 continue;
             }
-            match &track.instrument {
-                InstrumentKind::Scratch(def) => {
-                    eager[ti] = true;
-                    if let Some(source) = &def.source_track {
-                        for (si, other) in timeline.tracks.iter().enumerate() {
-                            let wanted = if source == "mix" { !matches!(other.instrument, InstrumentKind::Scratch(_)) } else { &other.name == source };
-                            if wanted {
-                                eager[si] = true;
-                            }
-                        }
-                    }
+            let InstrumentKind::Scratch(def) = &track.instrument else { continue };
+            let Some(source) = &def.source_track else { continue };
+            let until = def.start + def.length.unwrap_or(1.0);
+            for (si, other) in timeline.tracks.iter().enumerate() {
+                let wanted = if source == "mix" { !matches!(other.instrument, InstrumentKind::Scratch(_)) } else { &other.name == source };
+                if wanted {
+                    record_until[si] = Some(record_until[si].unwrap_or(0.0).max(until));
                 }
-                _ => {}
             }
         }
 
         // Plugins are loaded and set going here, on the calling thread, one at
         // a time: many expect a single host thread. Nothing is asked of them
         // yet — `render_one` plays each one as far as the stretch it is
-        // rendering — unless a scratch track cuts its record out of the
-        // plugin's audio, which wants all of it before the first stretch.
-        let mut plugin_results: Vec<(usize, Result<Vec<StereoClip>, String>)> = Vec::new();
+        // rendering — unless a record is cut out of the plugin's audio, which
+        // wants all of it before the first stretch.
+        let mut ready: HashMap<usize, Vec<StereoClip>> = HashMap::new();
         let mut claps: Vec<(usize, crate::render::ClapPlayer)> = Vec::new();
         for (ti, track) in timeline.tracks.iter().enumerate() {
             if needed[ti]
                 && !track.silent
                 && let InstrumentKind::Clap(def) = &track.instrument
             {
-                match crate::render::start_clap(def, &track.notes, sr) {
-                    Ok(mut player) => match eager[ti] {
-                        true => plugin_results.push((ti, player.render_to(usize::MAX).map(|c| vec![c]))),
-                        false => claps.push((ti, player)),
-                    },
-                    Err(e) => plugin_results.push((ti, Err(e))),
+                let started = crate::render::start_clap(def, &track.notes, sr).and_then(|mut player| match record_until[ti].is_some() {
+                    true => player.render_to(usize::MAX).map(|clip| Some(vec![clip])),
+                    false => {
+                        claps.push((ti, player));
+                        Ok(None)
+                    }
+                });
+                match started {
+                    Ok(Some(clips)) => {
+                        ready.insert(ti, clips);
+                    }
+                    Ok(None) => {}
+                    Err(e) => warnings.push(format!("track '{}': {e}", track.name)),
                 }
             }
         }
 
-        let results: Vec<(usize, Result<Vec<StereoClip>, String>)> = timeline
-            .tracks
-            .par_iter()
-            .enumerate()
-            .filter(|(ti, _)| needed[*ti] && eager[*ti] && !matches!(timeline.tracks[*ti].instrument, InstrumentKind::Clap(_)))
-            .filter_map(|(ti, track)| crate::render::render_track(track, sr).map(|r| (ti, r)))
-            .collect::<Vec<_>>()
-            .into_iter()
-            .chain(plugin_results)
-            .collect();
-        let mut ready: HashMap<usize, Vec<StereoClip>> = HashMap::new();
-        for (ti, result) in results {
-            match result {
-                Ok(clips) => {
-                    ready.insert(ti, clips);
-                }
-                Err(e) => warnings.push(format!("track '{}': {e}", timeline.tracks[ti].name)),
-            }
-        }
-        // Scratch tracks that use another track as their record come last:
-        // they need that track's dry audio.
-        for (ti, track) in timeline.tracks.iter().enumerate() {
-            if !needed[ti] {
-                continue;
-            }
-            let InstrumentKind::Scratch(def) = &track.instrument else { continue };
-            let Some(src_name) = &def.source_track else { continue };
-            let source_clips: Vec<&StereoClip> = if src_name == "mix" {
-                ready
-                    .iter()
-                    .filter(|(i, _)| !matches!(timeline.tracks[**i].instrument, InstrumentKind::Scratch(_)))
-                    .flat_map(|(_, c)| c.iter())
-                    .collect()
-            } else {
-                let Some(si) = timeline.tracks.iter().position(|t| &t.name == src_name) else { continue };
-                match ready.get(&si) {
-                    Some(clips) => clips.iter().collect(),
-                    None => {
-                        warnings.push(format!("track '{}': source track '{src_name}' has no audio", track.name));
-                        continue;
-                    }
-                }
-            };
-            let from = (def.start * sr as f64) as usize;
-            let n = (def.length.unwrap_or(1.0) * sr as f64) as usize;
-            let mut region = (vec![0.0f32; n], vec![0.0f32; n]);
-            for clip in source_clips {
-                for (i, (l, r)) in clip.left.iter().zip(&clip.right).enumerate() {
-                    let idx = clip.offset + i;
-                    if idx >= from && idx < from + n {
-                        region.0[idx - from] += l;
-                        region.1[idx - from] += r;
-                    }
-                }
-            }
-            // The record should sound like the source track does in the mix.
-            if let Some(src) = timeline.tracks.iter().find(|t| &t.name == src_name) {
-                if let Some(eq) = &src.eq {
-                    crate::dsp::biquad::apply_eq(eq, &mut region.0, &mut region.1, sr);
-                }
-                let g = db_to_gain(src.gain_db);
-                region.0.iter_mut().chain(region.1.iter_mut()).for_each(|s| *s *= g);
-            }
-            match crate::instruments::scratch::render_region(def, region.0, region.1, sr as f64, &track.notes, sr) {
-                Ok(clips) => {
-                    ready.insert(ti, clips);
-                }
-                Err(e) => warnings.push(format!("track '{}': {e}", track.name)),
-            }
-        }
+        // An Audio Unit track's audio has been rendered by another process.
         for (ti, track) in timeline.tracks.iter().enumerate() {
             if let InstrumentKind::AudioUnit(au) = &track.instrument {
                 match stems.remove(&ti) {
@@ -524,6 +466,80 @@ impl<'a> Stream<'a> {
                 }
             }
         }
+
+        // The rest of what a record is cut from, each track only as far as the
+        // record reaches.
+        let cut_from: Vec<(usize, Result<Vec<StereoClip>, String>)> = timeline
+            .tracks
+            .par_iter()
+            .enumerate()
+            .filter(|(ti, _)| needed[*ti] && record_until[*ti].is_some() && !ready.contains_key(ti))
+            .filter_map(|(ti, track)| crate::render::render_track_before(track, sr, record_until[ti].expect("a record to reach")).map(|r| (ti, r)))
+            .collect();
+        let mut records: HashMap<usize, Vec<StereoClip>> = HashMap::new();
+        for (ti, result) in cut_from {
+            match result {
+                Ok(clips) => {
+                    records.insert(ti, clips);
+                }
+                Err(e) => warnings.push(format!("track '{}': {e}", timeline.tracks[ti].name)),
+            }
+        }
+        timing.mark("what a record is cut from");
+
+        // Each scratch track's record, ready for its moves to be cut out of it
+        // as their bars come round.
+        let mut turntables: HashMap<usize, crate::instruments::scratch::Record> = HashMap::new();
+        for (ti, track) in timeline.tracks.iter().enumerate() {
+            if !needed[ti] || track.silent {
+                continue;
+            }
+            let InstrumentKind::Scratch(def) = &track.instrument else { continue };
+            let record = match &def.source_track {
+                None => crate::instruments::scratch::Record::from_file(def, sr),
+                Some(src_name) => {
+                    let of_mix = src_name == "mix";
+                    if !of_mix && !timeline.tracks.iter().any(|t| &t.name == src_name) {
+                        warnings.push(format!("track '{}': source track '{src_name}' has no audio", track.name));
+                        continue;
+                    }
+                    let from = (def.start * sr as f64) as usize;
+                    let n = (def.length.unwrap_or(1.0) * sr as f64) as usize;
+                    let mut region = (vec![0.0f32; n], vec![0.0f32; n]);
+                    for (si, other) in timeline.tracks.iter().enumerate() {
+                        let wanted = if of_mix { !matches!(other.instrument, InstrumentKind::Scratch(_)) } else { &other.name == src_name };
+                        if !wanted {
+                            continue;
+                        }
+                        for clip in records.get(&si).or_else(|| ready.get(&si)).into_iter().flatten() {
+                            for (i, (l, r)) in clip.left.iter().zip(&clip.right).enumerate() {
+                                let idx = clip.offset + i;
+                                if idx >= from && idx < from + n {
+                                    region.0[idx - from] += l;
+                                    region.1[idx - from] += r;
+                                }
+                            }
+                        }
+                    }
+                    // The record should sound like the source track does in the mix.
+                    if let Some(src) = timeline.tracks.iter().find(|t| &t.name == src_name) {
+                        if let Some(eq) = &src.eq {
+                            crate::dsp::biquad::apply_eq(eq, &mut region.0, &mut region.1, sr);
+                        }
+                        let g = db_to_gain(src.gain_db);
+                        region.0.iter_mut().chain(region.1.iter_mut()).for_each(|s| *s *= g);
+                    }
+                    crate::instruments::scratch::Record::new(def, region.0, region.1, sr as f64, sr)
+                }
+            };
+            match record {
+                Ok(record) => {
+                    turntables.insert(ti, record);
+                }
+                Err(e) => warnings.push(format!("track '{}': {e}", track.name)),
+            }
+        }
+        drop(records);
         timing.mark("what cannot be rendered a bar at a time");
 
         let mut tracks: Vec<TrackState> = timeline
@@ -583,6 +599,10 @@ impl<'a> Stream<'a> {
                     },
                     InstrumentKind::Tb303(def) => match crate::instruments::tb303::Player::new(def, &track.notes, &track.sweeps, sr) {
                         Some(player) => Voices::Tb303(Box::new(player)),
+                        None => Voices::Ready,
+                    },
+                    InstrumentKind::Scratch(_) => match turntables.remove(&ti) {
+                        Some(record) => Voices::Scratch(Box::new(record)),
                         None => Voices::Ready,
                     },
                     _ => Voices::Ready,
@@ -1167,6 +1187,15 @@ impl TrackState {
                 self.next = until;
                 self.all_rendered = until == track.clips.len();
             }
+            Voices::Scratch(record) => {
+                let mut until = self.next;
+                while until < track.notes.len() && track.notes[until].start * sr as f64 <= horizon {
+                    until += 1;
+                }
+                clips = track.notes[self.next..until].par_iter().filter_map(|note| record.cut(note)).collect();
+                self.next = until;
+                self.all_rendered = until == track.notes.len();
+            }
             Voices::Tb303(player) => {
                 clips = vec![player.render_to(to)];
                 self.all_rendered = player.finished();
@@ -1392,6 +1421,41 @@ master
   limiter ceiling=-1
 ";
 
+    /// A scratch track whose record is cut out of another track: two bars of
+    /// the drums, played back over a later bar. The record has to be whole
+    /// before the first move is cut, so the drums are rendered that far ahead
+    /// of the rest of the song — and no further.
+    const DECK: &str = "tempo 128
+meter 4/4
+instrument kit drums
+instrument dj scratch
+  source drums bars=3-4
+  speed 1
+  pitch keep
+  grain 1/16
+pattern beat grid=1/16
+  kick    X...X...X...X...
+  snare   ....X.......X...
+  hat     x.x.x.x.x.x.x.x.
+pattern cut grid=1/1
+  back x
+track drums
+  instrument kit
+  eq low=+2 high=+1
+  gain -3
+  play beat x16
+track dj
+  instrument dj
+  layer dj
+  gain +4
+  at 6
+  play cut
+  at 12
+  play cut
+master
+  limiter ceiling=-1
+";
+
     fn timeline(text: &str) -> Timeline {
         crate::compile(text).expect("the test song compiles").0
     }
@@ -1420,7 +1484,7 @@ master
     /// stretch boundary is the ordinary render, to the last bit.
     #[test]
     fn a_streamed_render_is_the_ordinary_renders_own_samples() {
-        for song in [WORKS, DRY, ACID] {
+        for song in [WORKS, DRY, ACID, DECK] {
             let timeline = timeline(song);
             let whole = crate::render::render_with(&timeline, RATE, HashMap::new(), &RenderOptions::default());
             let (given, streamed) = streamed(&timeline, &RenderOptions::default());
@@ -1443,6 +1507,25 @@ master
             let faded = (kept - fade..kept).all(|i| whole.mix.left[i].abs() <= left[i].abs() + 1e-9);
             assert!(faded, "the last 50 ms are the fade over what was given out");
             assert!(left[kept..].iter().all(|s| s.abs() < 1e-3), "what the trim cut was near-silence");
+        }
+    }
+
+    /// A record cut out of another track. The source track is rendered only as
+    /// far as the record reaches — two bars of sixteen — and the moves cut out
+    /// of it are the ordinary render's own moves, heard and not silence.
+    #[test]
+    fn a_record_cut_out_of_another_track_is_the_same_record() {
+        let timeline = timeline(DECK);
+        let options = RenderOptions { split: true, cache: None, stems_through_master: false };
+        let whole = crate::render::render_with(&timeline, RATE, HashMap::new(), &options);
+        let (_, streamed) = streamed(&timeline, &options);
+        assert!(streamed.report.warnings.is_empty(), "the record was not cut: {:?}", streamed.report.warnings);
+        let deck = streamed.layers.iter().find(|l| l.layer == "dj").expect("a dj layer");
+        assert!(deck.audio.rms_db() > -50.0, "the deck was heard: {:.1} dBFS", deck.audio.rms_db());
+        for (got, want) in streamed.layers.iter().zip(&whole.layers) {
+            assert_eq!(got.audio.left.len(), want.audio.left.len(), "layer '{}' is a different length", got.layer);
+            assert_eq!(differs(&got.audio.left, &want.audio.left), None, "layer '{}' differs", got.layer);
+            assert_eq!(differs(&got.audio.right, &want.audio.right), None, "layer '{}' differs", got.layer);
         }
     }
 

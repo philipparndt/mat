@@ -5,7 +5,7 @@ use std::collections::HashMap;
 
 use rayon::prelude::*;
 
-use crate::arrange::{AudioClip, Duck, Timeline, TimelineTrack};
+use crate::arrange::{AudioClip, Duck, TimedNote, Timeline, TimelineTrack};
 use crate::dsp::biquad::apply_eq;
 use crate::dsp::chorus::apply_chorus;
 use crate::sampler::audio_file::AudioFile;
@@ -738,18 +738,47 @@ fn through_linear_master(
 }
 
 pub(crate) fn render_track(track: &TimelineTrack, sr: f32) -> Option<Result<Vec<StereoClip>, String>> {
+    render_track_before(track, sr, f64::INFINITY)
+}
+
+/// A track's voices, leaving out the notes that start at or after `until`
+/// seconds.
+///
+/// Every note kept is rendered exactly as [`render_track`] renders it, and
+/// what a note looks at to be rendered — the note before it for a glide, the
+/// hat after it for a choke — is still the whole track's, so keeping fewer of
+/// them changes none of the ones kept. A note left out starts later than
+/// `until` and puts no sample before it, which is what makes this the same
+/// audio over `0 .. until` as the whole track's.
+///
+/// It is for a scratch track's record, which is a bar or two cut out of
+/// another track and does not need the rest of it. A voice that is not a
+/// function of its own note — a tb303 — is rendered whole: more than was
+/// asked for is always right, less is not.
+pub(crate) fn render_track_before(track: &TimelineTrack, sr: f32, until: f64) -> Option<Result<Vec<StereoClip>, String>> {
+    let kept = |note: &&TimedNote| note.start < until;
     match &track.instrument {
         InstrumentKind::Sampler(def) => Some(
-            Sampler::load(std::path::Path::new(&def.load)).and_then(|sampler| sampler.render(&track.notes, def, sr)),
+            Sampler::load(std::path::Path::new(&def.load))
+                .and_then(|sampler| sampler.prepare(&track.notes, def, sr))
+                .map(|prepared| track.notes.par_iter().enumerate().filter(|(_, n)| kept(&n)).flat_map_iter(|(i, note)| prepared.render_note(i, note)).collect()),
         ),
-        InstrumentKind::Samples(def) => Some(Sampler::from_zones(&def.zones).and_then(|sampler| sampler.render(&track.notes, &def.settings, sr))),
-        InstrumentKind::Scratch(def) if def.source_track.is_none() => Some(crate::instruments::scratch::render(def, &track.notes, sr)),
+        InstrumentKind::Samples(def) => Some(
+            Sampler::from_zones(&def.zones)
+                .and_then(|sampler| sampler.prepare(&track.notes, &def.settings, sr))
+                .map(|prepared| track.notes.par_iter().enumerate().filter(|(_, n)| kept(&n)).flat_map_iter(|(i, note)| prepared.render_note(i, note)).collect()),
+        ),
+        InstrumentKind::Scratch(def) if def.source_track.is_none() => {
+            let notes: Vec<TimedNote> = track.notes.iter().filter(|n| kept(&n)).cloned().collect();
+            Some(crate::instruments::scratch::render(def, &notes, sr))
+        }
         InstrumentKind::Scratch(_) => None,
         InstrumentKind::Synth(def) => Some(Ok(
             track
                 .notes
                 .par_iter()
                 .enumerate()
+                .filter(|(_, n)| kept(&n))
                 .map(|(i, note)| {
                     // Portamento glides from the last note that started before this one.
                     let from = if def.glide > 0.0 {
@@ -766,6 +795,7 @@ pub(crate) fn render_track(track: &TimelineTrack, sr: f32) -> Option<Result<Vec<
                 .notes
                 .par_iter()
                 .enumerate()
+                .filter(|(_, n)| kept(&n))
                 .map(|(i, note)| {
                     let Pitch::Drum(kind) = note.pitch else { unreachable!() };
                     let choke = (kind == DrumKind::OpenHat)

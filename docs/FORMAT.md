@@ -551,15 +551,21 @@ this is not `--bars`, which renders a window of the
 song from silence and cannot carry a tail into it; nothing is missing from a
 streamed render.
 
-**When the first sound arrives.** In well under a tenth of a second for most
-songs: `examples/neon.song`, four minutes and ten layers, is playing 0.07 s
-after it was asked for, where the whole render takes five to seven seconds.
-One kind of track cannot be made a bar at a time and is rendered in full before
-the first stretch, so a song with one waits for it: a scratch track, which cuts
-its record out of a file or out of another track, together with the tracks it
-cuts from (`examples/undertow-b.song` waits 1.4 s for the drum track its record
-is cut from). Everything else is made when its bar comes — synths, drum kits,
-samplers, audio files, tb303s, CLAP plugins, Audio Unit tracks.
+**When the first sound arrives.** In a fraction of a second for every example
+here, whatever it is made of: `examples/neon.song`, four minutes and ten
+layers, is playing 0.08 s after it was asked for and `examples/harbour.song`,
+whose bass and arpeggio are Surge XT, 0.64 s, where the whole renders take
+seconds and half a minute.
+Every kind of track is made when its bar comes — synths, drum kits, samplers,
+audio files, tb303s, scratch moves, CLAP plugins. Two things are made before
+the first stretch, and a song that has them waits for them. A scratch track's
+*record* — the bar or two under the needle — is read first: out of a file,
+which costs nothing, or cut out of another track, which is then rendered ahead
+of the song, though only as far as the record reaches
+(`examples/undertow-b.song`, whose record is two bars of its drum track, is
+playing 0.25 s after it was asked for). And an Audio Unit track's audio is
+rendered whole, by the `mat-au` host in another process, before a streamed
+render begins at all.
 
 **What it costs.** Nothing much. It is the same work, spread a stretch at a
 time rather than a layer at a time, and a stretch has every layer in it to
