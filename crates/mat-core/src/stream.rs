@@ -109,6 +109,12 @@ pub struct Stream<'a> {
     /// The mix as the master has left it, from frame 0.
     mix_left: Vec<f32>,
     mix_right: Vec<f32>,
+    /// The mix before the master's dynamics, from frame 0, kept only when the
+    /// layers are to go through the master's gain curve — see
+    /// `render::master_gain_curve`. Empty otherwise.
+    pre_left: Vec<f32>,
+    pre_right: Vec<f32>,
+    through_master: bool,
     /// The peak of the layers' sum, before the master's dynamics.
     layers_peak: f32,
     /// Frames already given out by `next`, counted from the first bar asked
@@ -623,6 +629,9 @@ impl<'a> Stream<'a> {
             blocks: FIRST_BLOCKS,
             mix_left: Vec::new(),
             mix_right: Vec::new(),
+            pre_left: Vec::new(),
+            pre_right: Vec::new(),
+            through_master: options.split && options.stems_through_master,
             layers_peak: 0.0,
             emitted: 0,
             lead_in: timeline.window.as_ref().map_or(0, |w| w.lead_in_frames(sample_rate)),
@@ -732,6 +741,10 @@ impl<'a> Stream<'a> {
 
         let [mut left, mut right] = mix;
         self.layers_peak = left.iter().chain(&right).fold(self.layers_peak, |m, s| m.max(s.abs()));
+        if self.through_master {
+            self.pre_left.extend_from_slice(&left);
+            self.pre_right.extend_from_slice(&right);
+        }
         if self.master.saturation > 0.0 {
             crate::dsp::dynamics::saturate(self.master.saturation, &mut left, &mut right);
         }
@@ -807,6 +820,16 @@ impl<'a> Stream<'a> {
         let end = crate::render::trim_tail(&mut left, &mut right, self.sr);
         self.timing.mark("streamed");
 
+        // What the master's dynamics did to the mix, stretch after stretch,
+        // as one number per sample: the fade over the lead-in and the fade at
+        // the end are in `left`/`right` and not in the pre-master mix, so both
+        // are in the curve and a layer through it needs neither of them again.
+        let curve = self.through_master.then(|| {
+            let pre = [std::mem::take(&mut self.pre_left), std::mem::take(&mut self.pre_right)];
+            crate::render::master_gain_curve(pre, (&left, &right), end)
+        });
+        let master_curve_key = curve.as_ref().map(crate::render::curve_key);
+
         if let Some(cache) = &self.cache {
             for (g, layer) in self.layers.iter().enumerate() {
                 if self.cached[g] {
@@ -831,7 +854,10 @@ impl<'a> Stream<'a> {
                     let (mut l, mut r) = (std::mem::take(&mut state.left), std::mem::take(&mut state.right));
                     l.resize(end, 0.0);
                     r.resize(end, 0.0);
-                    crate::render::fade_out(&mut l, &mut r, self.sr);
+                    match &curve {
+                        Some(curve) => crate::render::apply_curve(curve, &mut l, &mut r),
+                        None => crate::render::fade_out(&mut l, &mut r, self.sr),
+                    }
                     LayerAudio { layer: layer.clone(), audio: Audio { sample_rate: self.sample_rate, left: l, right: r }, key: *key, cached: *was_cached }
                 })
                 .collect()
@@ -847,7 +873,12 @@ impl<'a> Stream<'a> {
             left.drain(..frames);
             right.drain(..frames);
             for layer in &mut layers {
-                crate::render::drop_lead_in(&mut layer.audio.left, &mut layer.audio.right, self.lead_in, self.sr);
+                match curve.is_some() {
+                    // The fade over the cut came with the curve; only the
+                    // lead-in itself is left to drop.
+                    true => crate::render::drain_lead_in(&mut layer.audio.left, &mut layer.audio.right, self.lead_in),
+                    false => crate::render::drop_lead_in(&mut layer.audio.left, &mut layer.audio.right, self.lead_in, self.sr),
+                }
             }
         }
 
@@ -855,6 +886,7 @@ impl<'a> Stream<'a> {
             mix: Audio { sample_rate: self.sample_rate, left, right },
             layers,
             layers_peak_db,
+            master_curve_key,
             report: RenderReport { skipped_tracks: self.skipped, warnings: self.warnings },
         }
     }
@@ -1311,7 +1343,7 @@ master
     #[test]
     fn the_layers_of_a_streamed_render_are_the_ordinary_renders_layers() {
         let timeline = timeline(WORKS);
-        let options = RenderOptions { split: true, cache: None };
+        let options = RenderOptions { split: true, cache: None, stems_through_master: false };
         let whole = crate::render::render_with(&timeline, RATE, HashMap::new(), &options);
         let (_, streamed) = streamed(&timeline, &options);
         assert_eq!(differs(&streamed.mix.left, &whole.mix.left), None);
@@ -1326,6 +1358,36 @@ master
         }
     }
 
+
+    /// The layers of a streamed render through the master's gain are the
+    /// layers of an ordinary one through it, and both sum to the mix — the
+    /// whole song, and a stretch of it, whose lead-in is dropped from the
+    /// layers and from the mix alike.
+    #[test]
+    fn streamed_layers_through_the_master_sum_to_the_mix() {
+        let song = timeline(WORKS);
+        let part = crate::bars::cut(&song, crate::BarRange::parse("5-8").expect("a range"), RATE).expect("in range");
+        for timeline in [&song, &part] {
+            let options = RenderOptions { split: true, cache: None, stems_through_master: true };
+            let whole = crate::render::render_with(timeline, RATE, HashMap::new(), &options);
+            let (_, streamed) = streamed(timeline, &options);
+            assert_eq!(streamed.master_curve_key, whole.master_curve_key, "the same curve");
+            assert_eq!(differs(&streamed.mix.left, &whole.mix.left), None, "the mix differs");
+            for (got, want) in streamed.layers.iter().zip(&whole.layers) {
+                assert_eq!(got.audio.left.len(), want.audio.left.len(), "layer '{}' is a different length", got.layer);
+                assert_eq!(differs(&got.audio.left, &want.audio.left), None, "layer '{}' differs", got.layer);
+                assert_eq!(differs(&got.audio.right, &want.audio.right), None, "layer '{}' differs", got.layer);
+            }
+            let mut worst = 0.0f32;
+            for i in 0..streamed.mix.left.len() {
+                let l: f32 = streamed.layers.iter().map(|x| x.audio.left[i]).sum();
+                let r: f32 = streamed.layers.iter().map(|x| x.audio.right[i]).sum();
+                worst = worst.max((l - streamed.mix.left[i]).abs()).max((r - streamed.mix.right[i]).abs());
+            }
+            assert!(worst < 1e-5, "the streamed layers differ from the mix by up to {worst}");
+        }
+    }
+
     /// A streamed render fills the same cache as an ordinary one and reads the
     /// same cache back, so an editor can stream some renders and not others.
     #[test]
@@ -1333,8 +1395,8 @@ master
         let timeline = timeline(WORKS);
         let dir = std::env::temp_dir().join(format!("mat-stream-cache-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
-        let options = RenderOptions { split: true, cache: Some(dir.clone()) };
-        let plain = RenderOptions { split: true, cache: None };
+        let options = RenderOptions { split: true, cache: Some(dir.clone()), stems_through_master: false };
+        let plain = RenderOptions { split: true, cache: None, stems_through_master: false };
         let whole = crate::render::render_with(&timeline, RATE, HashMap::new(), &plain);
 
         // Streamed into an empty cache, then read back by an ordinary render.

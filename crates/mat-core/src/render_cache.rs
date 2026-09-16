@@ -356,13 +356,13 @@ master
         let long = SONG.replace("play p x2", "play p x8").replace("play q x2", "play q x8").replace("play beat x2", "play beat x8");
         let whole = timeline(&long);
         let part = crate::bars::cut(&whole, crate::bars::BarRange { from: 5, to: 8 }, 48_000).expect("in range");
-        let alone = |t: &Timeline| render_with(t, 48_000, HashMap::new(), &RenderOptions { split: true, cache: None }).mix;
+        let alone = |t: &Timeline| render_with(t, 48_000, HashMap::new(), &RenderOptions { split: true, cache: None, stems_through_master: false }).mix;
         let (whole_alone, part_alone) = (alone(&whole), alone(&part));
         assert_ne!(whole_alone.left.len(), part_alone.left.len(), "the two renders are different lengths");
 
         for order in [[&part, &whole], [&whole, &part]] {
             let dir = scratch();
-            let options = RenderOptions { split: true, cache: Some(dir.clone()) };
+            let options = RenderOptions { split: true, cache: Some(dir.clone()), stems_through_master: false };
             let first = render_with(order[0], 48_000, HashMap::new(), &options);
             let second = render_with(order[1], 48_000, HashMap::new(), &options);
             for (rendered, on_its_own) in [(&first, order[0]), (&second, order[1])] {
@@ -383,7 +383,7 @@ master
     fn a_cached_render_is_the_same_as_a_fresh_one() {
         let dir = scratch();
         let t = timeline(SONG);
-        let options = RenderOptions { split: true, cache: Some(dir.clone()) };
+        let options = RenderOptions { split: true, cache: Some(dir.clone()), stems_through_master: false };
         let fresh = render_with(&t, 48_000, HashMap::new(), &options);
         assert!(fresh.layers.iter().all(|l| !l.cached));
         let again = render_with(&t, 48_000, HashMap::new(), &options);
@@ -391,14 +391,14 @@ master
         assert_eq!(fresh.mix.left, again.mix.left);
         assert_eq!(fresh.mix.right, again.mix.right);
 
-        let uncached = render_with(&t, 48_000, HashMap::new(), &RenderOptions { split: true, cache: None });
+        let uncached = render_with(&t, 48_000, HashMap::new(), &RenderOptions { split: true, cache: None, stems_through_master: false });
         assert_eq!(fresh.mix.left, uncached.mix.left, "the cache changes nothing about the sound");
 
         let edited = timeline(&SONG.replace("  G4:h A4:h |", "  G4:h B4:h |"));
         let partial = render_with(&edited, 48_000, HashMap::new(), &options);
         let rendered: Vec<&str> = partial.layers.iter().filter(|l| !l.cached).map(|l| l.layer.as_str()).collect();
         assert_eq!(rendered, ["two"], "only the edited layer is rendered");
-        let full = render_with(&edited, 48_000, HashMap::new(), &RenderOptions { split: true, cache: None });
+        let full = render_with(&edited, 48_000, HashMap::new(), &RenderOptions { split: true, cache: None, stems_through_master: false });
         assert_eq!(partial.mix.left, full.mix.left, "a partial render is the same as a full one");
         let _ = fs::remove_dir_all(&dir);
     }

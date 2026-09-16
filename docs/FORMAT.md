@@ -442,11 +442,30 @@ under `sources` the absolute paths of the song and every file it includes.
 The layers come out of one render of the whole song: every track is rendered
 once, as it is in the mix, and each layer is its tracks' share — with their
 sends into the delay and reverb, the master sidechain keyed from the whole
-song, and the master's gain, EQ and width. They are all the mix's length and
-sum to it sample for sample, except that the master's saturation, compressor,
-clipper and limiter are not applied to a layer (they are not linear, so they
-cannot be split). `manifest.json` says so under `mixing`, and carries the
-`master` settings so a player can apply its own limiter to the sum.
+song, and the master's gain, EQ and width. They are all the mix's length, and
+**playing them together is the mix, sample for sample**, the master's
+saturation, compressor, clipper and limiter included.
+
+Those four are not linear, so they cannot be split — but what they do to the
+mix at one sample is, in the end, a number the mix is multiplied by there. That
+number is `mastered / unmastered` at that sample, per channel, and every stem
+is written through it. Summing the stems then gives `g·(stem₁ + stem₂ + …)`,
+which is `g·unmastered`, which is the mix. Nothing is left for a player to do:
+the sum is already under the limiter's ceiling.
+
+`manifest.json` says so under `mixing`: `stems_through_master` is `true`,
+`sum_peak_db` is the mix's own peak, and `pre_master_peak_db` is what the sum
+would have peaked at without the curve — how hard the master was working.
+
+```sh
+mat render song.song --stems out/ --stems-pre-master   # the linear part only
+```
+
+With `--stems-pre-master` the stems are what they were before: the master's
+linear stages and no more, summing to the mix *before* its dynamics. A player
+that wants the mastered loudness then puts its own limiter on the sum, and
+`master` in the manifest tells it what the song's would have done. `applied`
+and `skipped` under `mixing` name the stages either way.
 
 ## Rendering while editing
 
@@ -462,6 +481,12 @@ layers whose hash changed and reads the rest back, and a stem already written
 for a layer is hard-linked into `out/` instead of written again. An edit to one
 pattern of a four-minute, ten-layer song renders in about a second instead of
 about five. A cached render is the same samples as an uncached one.
+
+A *stem* is kept under the layer's hash and the master's gain curve together:
+an edit to any layer changes the mix, and so the curve, and so every stem. The
+layers themselves are unaffected — they are what they were before the master —
+so an edit still renders only the layers it touched, and only the writing of
+the stems is done again.
 
 Each layer's `key` and whether it was `cached` are in `manifest.json`. A cache
 file no render has used for 30 minutes is deleted by the next render. The cache

@@ -60,15 +60,24 @@ pub struct LayerAudio {
 /// A render: the mix and, when asked for, the layers it is the sum of.
 pub struct Rendering {
     pub mix: Audio,
-    /// Empty unless the render was asked to split. The layers sum, sample for
-    /// sample, to the mix as it was before saturation, the bus compressor, the
-    /// clipper and the limiter — every stage up to there is linear, so the sum
-    /// of the parts is the whole.
+    /// Empty unless the render was asked to split.
+    ///
+    /// The layers sum, sample for sample, to the mix as it was before
+    /// saturation, the bus compressor, the clipper and the limiter — every
+    /// stage up to there is linear, so the sum of the parts is the whole.
+    /// With [`RenderOptions::stems_through_master`] they have been through the
+    /// master's own gain curve as well, and sum to the mix itself.
     pub layers: Vec<LayerAudio>,
     /// The peak of the layers' sum in dBFS — the mix before its dynamics —
     /// so a player that sums the layers itself knows how far above the
-    /// limiter's ceiling that lands, and how much to turn them down.
+    /// limiter's ceiling that lands, and how much to turn them down. With
+    /// `stems_through_master` the sum is the mix, already under the ceiling,
+    /// and nothing needs turning down.
     pub layers_peak_db: f32,
+    /// What the master's gain curve was, when the layers went through it: a
+    /// number that changes with any change to the song, so a stem kept under
+    /// it belongs to a render of exactly this mix. Nil when they did not.
+    pub master_curve_key: Option<u64>,
     pub report: RenderReport,
 }
 
@@ -77,6 +86,10 @@ pub struct Rendering {
 /// what the sum of the stems is.
 pub const LAYER_STAGES_APPLIED: &[&str] = &["delay", "reverb", "sidechain", "gain", "eq", "width"];
 pub const LAYER_STAGES_SKIPPED: &[&str] = &["saturation", "comp", "clip", "limiter"];
+
+/// The same, for layers written through the master's gain curve: there is
+/// nothing the mix has been through that they have not.
+pub const MASTERED_STAGES_APPLIED: &[&str] = &["delay", "reverb", "sidechain", "gain", "eq", "width", "saturation", "comp", "clip", "limiter"];
 
 /// How to render.
 #[derive(Default, Clone)]
@@ -88,6 +101,10 @@ pub struct RenderOptions {
     /// reverberates that track's layer and reads the rest back. See
     /// `crate::render_cache`.
     pub cache: Option<std::path::PathBuf>,
+    /// Put the layers through the master's own gain curve, so that summing
+    /// them gives the mix and not the mix before its dynamics. See
+    /// [`master_gain_curve`]. Nothing without `split`.
+    pub stems_through_master: bool,
 }
 
 /// Renders the timeline. `stems` holds pre-rendered dry audio for tracks the
@@ -98,7 +115,7 @@ pub fn render(timeline: &Timeline, sample_rate: u32, stems: HashMap<usize, Stere
 }
 
 pub fn render_layers(timeline: &Timeline, sample_rate: u32, stems: HashMap<usize, StereoClip>, split: bool) -> Rendering {
-    render_with(timeline, sample_rate, stems, &RenderOptions { split, cache: None })
+    render_with(timeline, sample_rate, stems, &RenderOptions { split, cache: None, stems_through_master: false })
 }
 
 /// Renders the timeline as layers, and the mix as their sum.
@@ -394,6 +411,9 @@ pub fn render_with(timeline: &Timeline, sample_rate: u32, mut stems: HashMap<usi
         let peak = left.iter().chain(&right).fold(0.0f32, |m, s| m.max(s.abs()));
         20.0 * peak.max(1e-9).log10()
     };
+    // The mix before the master's dynamics, kept so the layers can be put
+    // through what those dynamics did to it. See `master_gain_curve`.
+    let pre = (options.split && options.stems_through_master).then(|| [left.clone(), right.clone()]);
     if master.saturation > 0.0 {
         crate::dsp::dynamics::saturate(master.saturation, &mut left, &mut right);
     }
@@ -408,6 +428,16 @@ pub fn render_with(timeline: &Timeline, sample_rate: u32, mut stems: HashMap<usi
     }
     let end = trim_tail(&mut left, &mut right, sr);
     timing.mark("master dynamics");
+
+    let lead_frames = timeline.window.as_ref().map_or(0, |w| w.lead_in_frames(sample_rate));
+    let curve = pre.map(|pre| {
+        fade_lead_in(&mut left, &mut right, lead_frames, sr);
+        master_gain_curve(pre, (&left, &right), end)
+    });
+    let master_curve_key = curve.as_ref().map(curve_key);
+    if curve.is_some() {
+        timing.mark("master gain curve");
+    }
 
     if let Some(cache) = &cache {
         cache.keep(keys.iter().flatten().copied());
@@ -424,7 +454,12 @@ pub fn render_with(timeline: &Timeline, sample_rate: u32, mut stems: HashMap<usi
                 let (mut l, mut r) = buffer.unwrap_or_default();
                 l.resize(end, 0.0);
                 r.resize(end, 0.0);
-                fade_out(&mut l, &mut r, sr);
+                match &curve {
+                    // The mix's own fade is already in the curve, so a layer
+                    // through it must not be faded a second time.
+                    Some(curve) => apply_curve(curve, &mut l, &mut r),
+                    None => fade_out(&mut l, &mut r, sr),
+                }
                 LayerAudio { layer, audio: Audio { sample_rate, left: l, right: r }, key: *key, cached: *was_cached }
             })
             .collect()
@@ -435,15 +470,24 @@ pub fn render_with(timeline: &Timeline, sample_rate: u32, mut stems: HashMap<usi
     // Only part of the song: the lead-in was rendered so that notes which
     // begin just before the stretch are heard ringing at its start, and now it
     // goes, off the mix and off every layer alike, so that they still sum.
-    if let Some(window) = &timeline.window {
-        let frames = window.lead_in_frames(sample_rate);
-        drop_lead_in(&mut left, &mut right, frames, sr);
-        for layer in &mut layers {
-            drop_lead_in(&mut layer.audio.left, &mut layer.audio.right, frames, sr);
+    if lead_frames > 0 {
+        match curve.is_some() {
+            true => {
+                drain_lead_in(&mut left, &mut right, lead_frames);
+                for layer in &mut layers {
+                    drain_lead_in(&mut layer.audio.left, &mut layer.audio.right, lead_frames);
+                }
+            }
+            false => {
+                drop_lead_in(&mut left, &mut right, lead_frames, sr);
+                for layer in &mut layers {
+                    drop_lead_in(&mut layer.audio.left, &mut layer.audio.right, lead_frames, sr);
+                }
+            }
         }
     }
 
-    Rendering { mix: Audio { sample_rate, left, right }, layers, layers_peak_db, report: RenderReport { skipped_tracks: skipped, warnings } }
+    Rendering { mix: Audio { sample_rate, left, right }, layers, layers_peak_db, master_curve_key, report: RenderReport { skipped_tracks: skipped, warnings } }
 }
 
 /// Drops the lead-in from the front of a render of part of a song, and fades
@@ -453,15 +497,31 @@ pub(crate) fn drop_lead_in(left: &mut Vec<f32>, right: &mut Vec<f32>, frames: us
     if frames == 0 {
         return;
     }
+    fade_lead_in(left, right, frames, sr);
+    drain_lead_in(left, right, frames);
+}
+
+/// The fade alone, where the cut will be once the lead-in is gone. Taken
+/// before the master's gain curve when there is one, so that the curve carries
+/// it and a layer through the curve is faded once and not twice.
+pub(crate) fn fade_lead_in(left: &mut [f32], right: &mut [f32], frames: usize, sr: f32) {
+    if frames == 0 {
+        return;
+    }
+    let frames = frames.min(left.len());
+    let fade = ((0.005 * sr) as usize).min(left.len() - frames);
+    for k in 0..fade {
+        let g = k as f32 / fade as f32;
+        left[frames + k] *= g;
+        right[frames + k] *= g;
+    }
+}
+
+/// The lead-in itself, off the front.
+pub(crate) fn drain_lead_in(left: &mut Vec<f32>, right: &mut Vec<f32>, frames: usize) {
     let frames = frames.min(left.len());
     left.drain(..frames);
     right.drain(..frames);
-    let fade = ((0.005 * sr) as usize).min(left.len());
-    for k in 0..fade {
-        let g = k as f32 / fade as f32;
-        left[k] *= g;
-        right[k] *= g;
-    }
 }
 
 /// How long the send effects ring after the last sound.
@@ -868,6 +928,75 @@ pub(crate) fn trim_tail(left: &mut Vec<f32>, right: &mut Vec<f32>, sr: f32) -> u
     end
 }
 
+/// Below this the sum is too near zero to be divided by: its own rounding is
+/// most of what is left of it, and the ratio it gives is noise. -120 dBFS.
+const CURVE_FLOOR: f32 = 1e-6;
+
+/// No master can multiply a sample by more than this. Saturation's gain on a
+/// small signal is its drive over `tanh(drive)`, at most 4; a compressor's
+/// make-up is the only other lift, and 36 dB of it is far past anything a song
+/// asks for. A wider clamp than the chain can reach, so it never decides a
+/// sample — only catches one the arithmetic lost.
+const CURVE_CEILING: f32 = 64.0;
+
+/// What the master's dynamics did to the mix, sample for sample and per
+/// channel, as a number to multiply by.
+///
+/// Every stage after the layers are summed — saturation, the bus compressor,
+/// the clipper, the limiter, the fade at the end — comes out as the summed
+/// signal times something, the nonlinear ones included: a waveshaper's output
+/// divided by its input *is* that something at that sample. So `post / pre` is
+/// exact, and a layer multiplied by it is that layer's share of the mastered
+/// mix: `sum(layer[n] * g[n]) = g[n] * pre[n] = post[n]`.
+///
+/// Where the sum is under [`CURVE_FLOOR`] the last gain is held. The layers
+/// there sum to nothing, so `g * 0 = 0` whatever `g` is and the mix is
+/// reproduced either way; holding keeps a layer that is loud only because
+/// another cancels it from being multiplied by a number rounding chose.
+///
+/// `pre` is consumed and written over: it is the length of the mix, and a
+/// second buffer of that size is worth avoiding.
+pub(crate) fn master_gain_curve(mut pre: [Vec<f32>; 2], post: (&[f32], &[f32]), end: usize) -> [Vec<f32>; 2] {
+    let post = [post.0, post.1];
+    for (curve, post) in pre.iter_mut().zip(post) {
+        curve.truncate(end);
+        let mut held = 1.0f32;
+        for (g, post) in curve.iter_mut().zip(post) {
+            let ratio = if g.abs() > CURVE_FLOOR { *post / *g } else { held };
+            held = if ratio.is_finite() { ratio.clamp(0.0, CURVE_CEILING) } else { held };
+            *g = held;
+        }
+        // The mix cannot outlast what it was made of, so this is never short —
+        // but a curve is the mix's length whatever happens, or a layer would
+        // be multiplied over part of itself and left alone over the rest.
+        curve.resize(end, held);
+    }
+    pre
+}
+
+/// Multiplies a layer by the master's gain curve, in place.
+pub(crate) fn apply_curve(curve: &[Vec<f32>; 2], left: &mut [f32], right: &mut [f32]) {
+    for (channel, samples) in curve.iter().zip([left, right]) {
+        for (s, g) in samples.iter_mut().zip(channel) {
+            *s *= g;
+        }
+    }
+}
+
+/// A number for the curve, so a stem written through it can be kept under a
+/// name no other render of the song would claim. Any change anywhere in the
+/// song changes the mix, and so the curve.
+pub(crate) fn curve_key(curve: &[Vec<f32>; 2]) -> u64 {
+    let mut hash = crate::hash::Fnv::default();
+    for channel in curve {
+        hash = hash.u64(channel.len() as u64);
+        for g in channel {
+            hash = hash.u64(g.to_bits() as u64);
+        }
+    }
+    hash.finish()
+}
+
 /// How long the fade at the very end of a render is.
 pub const FADE_SECONDS: f32 = 0.05;
 
@@ -937,6 +1066,101 @@ master
             worst = worst.max((sl - l).abs()).max((sr - r).abs());
         }
         assert!(worst < 1e-4, "the layers differ from the mix by up to {worst}");
+    }
+
+
+    /// The same song with a master that is anything but linear: saturation, a
+    /// bus compressor and a limiter, all working.
+    const LOUD: &str = "tempo 120
+instrument a synth
+  osc saw voices=3 spread=12
+  drift 8
+  lfo pitch rate=5 depth=10
+instrument b synth
+  osc square
+pattern p
+  C4:q D4 E4 F4 |
+track one
+  instrument a
+  gain 6
+  reverb 0.3
+  delay 0.2
+  play p
+track two
+  instrument b
+  layer other
+  gain 6
+  pan 0.4
+  play p transpose=5
+master
+  gain 6
+  saturation 0.6
+  comp threshold=-18 ratio=4 attack=5ms release=120ms makeup=3
+  clip -2
+  limiter ceiling=-1 release=80ms
+";
+
+    /// The point of `stems_through_master`: with a master that saturates,
+    /// compresses, clips and limits, the layers still sum to the mix — not to
+    /// the mix before those, which is 4 dB louder and moves with the music.
+    #[test]
+    fn the_layers_sum_to_the_mastered_mix_when_they_go_through_its_gain() {
+        let timeline = crate::compile(LOUD).expect("the loud song compiles").0;
+        let options = RenderOptions { split: true, cache: None, stems_through_master: true };
+        let rendering = render_with(&timeline, 48_000, HashMap::new(), &options);
+        let mix = &rendering.mix;
+        assert!(mix.left.len() > 48_000, "the song renders something");
+        assert!(rendering.master_curve_key.is_some(), "the curve is named");
+        let mut worst = 0.0f32;
+        for i in 0..mix.left.len() {
+            let (mut sl, mut sr) = (0.0f32, 0.0f32);
+            for layer in &rendering.layers {
+                assert_eq!(layer.audio.left.len(), mix.left.len(), "a layer is the mix's length");
+                sl += layer.audio.left[i];
+                sr += layer.audio.right[i];
+            }
+            worst = worst.max((sl - mix.left[i]).abs()).max((sr - mix.right[i]).abs());
+        }
+        // -100 dBFS: what is left is the order the three numbers were added in.
+        assert!(worst < 1e-5, "the layers differ from the mastered mix by up to {worst}");
+    }
+
+    /// And without it they do not: the difference is the master's own work,
+    /// which is what the user hears as the stems being quieter than the mix.
+    #[test]
+    fn the_layers_do_not_sum_to_the_mastered_mix_without_it() {
+        let timeline = crate::compile(LOUD).expect("the loud song compiles").0;
+        let rendering = render_layers(&timeline, 48_000, HashMap::new(), true);
+        let mix = &rendering.mix;
+        let mut worst = 0.0f32;
+        for i in 0..mix.left.len() {
+            let sl: f32 = rendering.layers.iter().map(|l| l.audio.left[i]).sum();
+            worst = worst.max((sl - mix.left[i]).abs());
+        }
+        assert!(worst > 0.05, "this master would have to be doing something, and moved by {worst}");
+    }
+
+    /// Asking for the layers through the master must not change the mix.
+    #[test]
+    fn the_mix_is_the_same_whether_or_not_the_layers_go_through_the_master() {
+        let timeline = crate::compile(LOUD).expect("the loud song compiles").0;
+        let plain = render_layers(&timeline, 48_000, HashMap::new(), true).mix;
+        let options = RenderOptions { split: true, cache: None, stems_through_master: true };
+        let through = render_with(&timeline, 48_000, HashMap::new(), &options).mix;
+        assert_eq!(plain.left.len(), through.left.len());
+        let worst = plain.left.iter().zip(&through.left).map(|(a, b)| (a - b).abs()).fold(0.0f32, f32::max);
+        assert_eq!(worst, 0.0, "the mixes differ by up to {worst}");
+    }
+
+    /// Where the layers cancel, the sum is too near zero to divide by and the
+    /// last gain is held — and the sum is still the mix, because the layers
+    /// there sum to nothing whatever they are multiplied by.
+    #[test]
+    fn a_sum_of_nothing_is_still_the_mix() {
+        let pre = [vec![1.0f32, 0.0, 1e-9, 0.5], vec![1.0f32, 0.0, 1e-9, 0.5]];
+        let curve = master_gain_curve(pre, (&[0.5, 0.0, 0.0, 0.25], &[0.5, 0.0, 0.0, 0.25]), 4);
+        assert_eq!(curve[0], vec![0.5, 0.5, 0.5, 0.5], "the gain is held across what cannot be divided");
+        assert!(curve[0].iter().all(|g| g.is_finite()));
     }
 
     /// Asking for the layers must not change the mix.

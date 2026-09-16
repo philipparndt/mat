@@ -66,6 +66,18 @@ enum Command {
         /// for game engines.
         #[arg(long)]
         stems: Option<PathBuf>,
+        /// Write the stems as they were before the master's saturation,
+        /// compressor, clipper and limiter, which is what they used to be.
+        ///
+        /// Ordinarily each stem is put through the master's own gain curve,
+        /// so that playing the stems together is the mix, sample for sample.
+        /// That curve is one number per sample — what the master did to the
+        /// mix there — so the nonlinear stages come out right as well. With
+        /// this flag the stems are the mix's linear part instead: they sum to
+        /// the mix before its dynamics, and a player that wants the mastered
+        /// loudness has to put its own limiter on the sum.
+        #[arg(long)]
+        stems_pre_master: bool,
         /// Keep each layer here between renders, keyed by everything that
         /// shapes it, so rendering again after an edit renders only the layers
         /// the edit touched. For editors that render on every save.
@@ -168,7 +180,7 @@ fn run(cli: Cli) -> anyhow::Result<ExitCode> {
             print_summary(&timeline);
             println!("ok");
         }
-        Command::Render { song, output, sample_rate, bits, bitrate, bars, r#loop, stems, cache, stream } => {
+        Command::Render { song, output, sample_rate, bits, bitrate, bars, r#loop, stems, stems_pre_master, cache, stream } => {
             let output = output.unwrap_or_else(|| song.with_extension("wav"));
             let depth = match bits {
                 Bits::B16 => BitDepth::Int16,
@@ -207,11 +219,13 @@ fn run(cli: Cli) -> anyhow::Result<ExitCode> {
             let played = (timeline.end - lead_in).max(0.0);
             // One render, split into layers when stems are wanted: a stem is
             // the song's own take of its tracks, not a solo render of them.
+            let through_master = stems.is_some() && !stems_pre_master;
             let rendering = match stream {
-                true => stream_song(&timeline, sample_rate, stems.is_some(), cache.clone(), &output, depth)?,
-                false => render_song(&timeline, sample_rate, stems.is_some(), cache.clone()),
+                true => stream_song(&timeline, sample_rate, stems.is_some(), through_master, cache.clone(), &output, depth)?,
+                false => render_song(&timeline, sample_rate, stems.is_some(), through_master, cache.clone()),
             };
             let layers_peak_db = rendering.layers_peak_db;
+            let master_curve_key = rendering.master_curve_key;
             let mut audio = rendering.mix;
             if let Some(secs) = loop_seconds {
                 mat_core::render::fold_loop(&mut audio, secs);
@@ -249,7 +263,16 @@ fn run(cli: Cli) -> anyhow::Result<ExitCode> {
                     // gigabyte, and an edit changes one of them.
                     let kept = match (&layer_cache, layer.key) {
                         (Some(cache), Some(key)) => {
-                            let variant = format!("{}{}", encoding.variant(), if loop_seconds.is_some() { "-loop" } else { "" });
+                            // A stem through the master's gain curve is not
+                            // the layer's alone: a change to any other layer
+                            // changes the mix, and so the curve, and so this
+                            // stem. The curve is part of what it is kept under.
+                            let variant = format!(
+                                "{}{}{}",
+                                encoding.variant(),
+                                if loop_seconds.is_some() { "-loop" } else { "" },
+                                master_curve_key.map_or(String::new(), |k| format!("-m{k:016x}"))
+                            );
                             Some((cache, cache.stem_path(key, audio.left.len(), &variant, encoding.format.extension())))
                         }
                         _ => None,
@@ -310,16 +333,39 @@ fn run(cli: Cli) -> anyhow::Result<ExitCode> {
                     "loop": loop_seconds.is_some(),
                     "sections": timeline.sections.iter().map(|s| serde_json::json!({ "name": s.name, "bars": [s.from_bar, s.to_bar], "start": s.start - lead_in, "end": s.end - lead_in })).collect::<Vec<_>>(),
                     "layers": written,
-                    // What the stems add up to. Every stage a stem has been
-                    // through is linear, so their sum is the mix as it was
-                    // before the master's dynamics; a player that wants the
-                    // mastered loudness puts its own limiter on the sum, and
-                    // `master` tells it what the song's would have done.
+                    // What the stems add up to. Ordinarily every one has been
+                    // through the master's own gain curve — one number per
+                    // sample, what the master did to the mix there — so the
+                    // sum of them is the mix itself and nothing is left for a
+                    // player to do to it: `sum_peak_db` is then the mix's own
+                    // peak, under the limiter's ceiling, and a player that
+                    // turns the sum down by the difference turns it down by
+                    // nothing. With --stems-pre-master every stage a stem has
+                    // been through is linear instead, their sum is the mix
+                    // before the master's dynamics, and a player that wants
+                    // the mastered loudness puts its own limiter on the sum.
                     "mixing": {
-                        "stems_sum_to": "the mix before saturation, compressor, clip and limiter",
-                        "applied": mat_core::render::LAYER_STAGES_APPLIED,
-                        "skipped": mat_core::render::LAYER_STAGES_SKIPPED,
-                        "sum_peak_db": layers_peak_db,
+                        "stems_through_master": through_master,
+                        "stems_sum_to": match through_master {
+                            true => "the mix, sample for sample",
+                            false => "the mix before saturation, compressor, clip and limiter",
+                        },
+                        "applied": match through_master {
+                            true => mat_core::render::MASTERED_STAGES_APPLIED,
+                            false => mat_core::render::LAYER_STAGES_APPLIED,
+                        },
+                        "skipped": match through_master {
+                            true => &[] as &[&str],
+                            false => mat_core::render::LAYER_STAGES_SKIPPED,
+                        },
+                        "sum_peak_db": if through_master { audio.peak_db() } else { layers_peak_db },
+                        // The peak the sum would have had without the curve —
+                        // how hard the master was working, and what
+                        // `sum_peak_db` used to say.
+                        "pre_master_peak_db": layers_peak_db,
+                        // What the curve was: a stem written through it is a
+                        // stem of this mix and of no other.
+                        "master_curve_key": master_curve_key.map(|k| format!("{k:016x}")),
                     },
                     "master": timeline.master,
                     // Every file the song was read from, the song first: a save
@@ -461,12 +507,12 @@ fn print_summary(t: &Timeline) {
 }
 
 fn render(timeline: &Timeline, sample_rate: u32) -> mat_core::Audio {
-    render_song(timeline, sample_rate, false, None).mix
+    render_song(timeline, sample_rate, false, false, None).mix
 }
 
 /// Renders the song, with its layers kept apart when `split`, and prints
 /// the render's summary line.
-fn render_song(timeline: &Timeline, sample_rate: u32, split: bool, cache: Option<PathBuf>) -> mat_core::render::Rendering {
+fn render_song(timeline: &Timeline, sample_rate: u32, split: bool, through_master: bool, cache: Option<PathBuf>) -> mat_core::render::Rendering {
     let started = Instant::now();
     let stems = match render_audio_unit_stems(timeline, sample_rate) {
         Ok(stems) => stems,
@@ -475,7 +521,8 @@ fn render_song(timeline: &Timeline, sample_rate: u32, split: bool, cache: Option
             HashMap::new()
         }
     };
-    let rendering = mat_core::render::render_with(timeline, sample_rate, stems, &mat_core::render::RenderOptions { split, cache });
+    let options = mat_core::render::RenderOptions { split, cache, stems_through_master: through_master };
+    let rendering = mat_core::render::render_with(timeline, sample_rate, stems, &options);
     for warning in &rendering.report.warnings {
         eprintln!("warning: {warning}");
     }
@@ -502,6 +549,7 @@ fn stream_song(
     timeline: &Timeline,
     sample_rate: u32,
     split: bool,
+    through_master: bool,
     cache: Option<PathBuf>,
     output: &Path,
     depth: BitDepth,
@@ -514,7 +562,7 @@ fn stream_song(
             HashMap::new()
         }
     };
-    let options = mat_core::render::RenderOptions { split, cache };
+    let options = mat_core::render::RenderOptions { split, cache, stems_through_master: through_master };
     let mut stream = mat_core::stream::Stream::start(timeline, sample_rate, stems, &options);
     let mut writer = mat_core::wav::WavStream::create(output, sample_rate, depth).with_context(|| format!("writing {}", output.display()))?;
     let status = Status { path: output.with_extension("stream.json"), file: output.file_name().unwrap_or(output.as_os_str()).to_string_lossy().into_owned() };
