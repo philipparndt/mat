@@ -405,11 +405,16 @@ fn sample_library() -> std::path::PathBuf {
         .ok()
         .and_then(|e| e.parent().and_then(Path::parent).and_then(Path::parent).map(|r| r.join("assets/samples")));
     let built_from = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../assets/samples");
-    beside_binary
+    let found = beside_binary
         .into_iter()
         .chain(std::iter::once(built_from))
         .find(|p| p.is_dir())
-        .unwrap_or_else(|| Path::new("assets/samples").to_path_buf())
+        .unwrap_or_else(|| Path::new("assets/samples").to_path_buf());
+    // One library, one spelling: the checkout's path is written with `..` in
+    // it, and a sample's path is part of its layer's cache key. A library that
+    // is not there keeps the path it was looked for at, so it is still warned
+    // about by that name.
+    found.canonicalize().unwrap_or(found)
 }
 
 /// Resolves an instrument path: relative paths are taken relative to the song
@@ -473,7 +478,8 @@ mod tests {
         assert!(!beside.is_dir(), "{} exists, so this test would not reach the built-from checkout", beside.display());
 
         let library = super::sample_library();
-        assert_eq!(library.canonicalize().unwrap(), checkout.join("assets/samples"));
+        assert_eq!(library, checkout.join("assets/samples"));
+        assert!(!library.components().any(|c| c == std::path::Component::ParentDir), "{} is not written plainly", library.display());
 
         if std::env::var_os("MAT_ASSETS").is_none() {
             let resolved = super::resolve_load_path("samples:sonic-pi/bd_tek.wav", std::path::Path::new("/nonexistent/song"));
