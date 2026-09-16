@@ -785,7 +785,37 @@ pub(crate) fn render_track(track: &TimelineTrack, sr: f32) -> Option<Result<Vec<
     }
 }
 
-pub(crate) fn render_clap(def: &crate::model::ClapDef, notes: &[crate::arrange::TimedNote], sr: f32) -> Result<StereoClip, String> {
+/// A plugin track being played, a stretch at a time: the plugin's own block
+/// loop, with the track's gain over what comes out of it.
+pub(crate) struct ClapPlayer {
+    run: crate::clap_host::ClapRun,
+    gain: f32,
+    /// Frames of the track given out so far, which is where the next clip
+    /// begins.
+    made: usize,
+}
+
+impl ClapPlayer {
+    /// Whether the plugin has been played to the end of the track.
+    pub(crate) fn finished(&self) -> bool {
+        self.run.finished()
+    }
+
+    /// The track up to frame `to`, as a clip that begins where the last one
+    /// ended.
+    pub(crate) fn render_to(&mut self, to: usize) -> Result<StereoClip, String> {
+        let (mut left, mut right) = self.run.render_to(to)?;
+        left.iter_mut().chain(right.iter_mut()).for_each(|s| *s *= self.gain);
+        let offset = self.made;
+        self.made += left.len();
+        Ok(StereoClip { offset, left, right })
+    }
+}
+
+/// Loads a plugin, gives it its patch and its parameters, and sets it playing
+/// the track's notes. Every call on what comes back has to be made from the
+/// thread that made this one.
+pub(crate) fn start_clap(def: &crate::model::ClapDef, notes: &[crate::arrange::TimedNote], sr: f32) -> Result<ClapPlayer, String> {
     let instance = crate::clap_host::ClapInstance::load(&def.plugin, def.plugin_id.as_deref())?;
     if let Some(patch) = &def.patch {
         instance.load_preset(std::path::Path::new(patch))?;
@@ -802,10 +832,12 @@ pub(crate) fn render_clap(def: &crate::model::ClapDef, notes: &[crate::arrange::
         params.push((found.id, value.clamp(found.min, found.max)));
     }
     let end = notes.iter().map(|n| n.start + n.duration).fold(0.0, f64::max);
-    let mut clip = instance.render(notes, &params, end + 4.0, sr)?;
-    let gain = db_to_gain(def.gain_db);
-    clip.left.iter_mut().chain(clip.right.iter_mut()).for_each(|s| *s *= gain);
-    Ok(clip)
+    let run = instance.start(notes, &params, end + 4.0, sr)?;
+    Ok(ClapPlayer { run, gain: db_to_gain(def.gain_db), made: 0 })
+}
+
+pub(crate) fn render_clap(def: &crate::model::ClapDef, notes: &[crate::arrange::TimedNote], sr: f32) -> Result<StereoClip, String> {
+    start_clap(def, notes, sr)?.render_to(usize::MAX)
 }
 
 /// Reads the clips of an audio track, resampling if the file rate differs.

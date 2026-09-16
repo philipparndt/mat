@@ -31,11 +31,13 @@
 //! region of an audio file. A tb303 is not a function of its note — one voice
 //! runs the length of the track — but it is still made a stretch at a time,
 //! because everything it carries is in [`crate::instruments::tb303::Player`]
-//! and carries across a boundary like the master's own effects do. Two are
-//! rendered in full before the first stretch: a scratch track, which cuts its
-//! record out of a file or another track; and a CLAP plugin, which is a
-//! plugin. So is an Audio Unit track, whose audio another process has already
-//! rendered.
+//! and carries across a boundary like the master's own effects do. Nor is a
+//! CLAP plugin, which is asked for blocks of 256 frames and keeps its own
+//! state between them — so it is asked for the blocks the stretch needs and no
+//! more, on the one thread it is played from. What is left, and is rendered in
+//! full before the first stretch, is a scratch track, which cuts its record
+//! out of a file or another track, and the tracks it cuts from. So is an Audio
+//! Unit track, whose audio another process has already rendered.
 
 use std::collections::HashMap;
 
@@ -102,6 +104,13 @@ pub struct Stream<'a> {
     layers: Vec<LayerState>,
     key_tracks: Vec<usize>,
     key_used: bool,
+
+    /// The plugin tracks being played, and the track each one is. They are not
+    /// in [`TrackState`] because a plugin is played on one thread and the
+    /// tracks are rendered across all of them: these are run here, on the
+    /// thread that calls [`Stream::next`], before the rest of the stretch. It
+    /// is also what makes a `Stream` not `Send`.
+    claps: Vec<(usize, crate::render::ClapPlayer)>,
 
     master: MasterState,
 
@@ -396,7 +405,6 @@ impl<'a> Stream<'a> {
                 continue;
             }
             match &track.instrument {
-                InstrumentKind::Clap(_) => eager[ti] = true,
                 InstrumentKind::Scratch(def) => {
                     eager[ti] = true;
                     if let Some(source) = &def.source_track {
@@ -412,13 +420,25 @@ impl<'a> Stream<'a> {
             }
         }
 
-        // Plugins run on the calling thread, one at a time: many expect a single host thread.
+        // Plugins are loaded and set going here, on the calling thread, one at
+        // a time: many expect a single host thread. Nothing is asked of them
+        // yet — `render_one` plays each one as far as the stretch it is
+        // rendering — unless a scratch track cuts its record out of the
+        // plugin's audio, which wants all of it before the first stretch.
         let mut plugin_results: Vec<(usize, Result<Vec<StereoClip>, String>)> = Vec::new();
+        let mut claps: Vec<(usize, crate::render::ClapPlayer)> = Vec::new();
         for (ti, track) in timeline.tracks.iter().enumerate() {
             if needed[ti]
+                && !track.silent
                 && let InstrumentKind::Clap(def) = &track.instrument
             {
-                plugin_results.push((ti, crate::render::render_clap(def, &track.notes, sr).map(|c| vec![c])));
+                match crate::render::start_clap(def, &track.notes, sr) {
+                    Ok(mut player) => match eager[ti] {
+                        true => plugin_results.push((ti, player.render_to(usize::MAX).map(|c| vec![c]))),
+                        false => claps.push((ti, player)),
+                    },
+                    Err(e) => plugin_results.push((ti, Err(e))),
+                }
             }
         }
 
@@ -567,7 +587,10 @@ impl<'a> Stream<'a> {
                     },
                     _ => Voices::Ready,
                 };
-                state.all_rendered = matches!(state.voices, Voices::Ready);
+                // A plugin track makes nothing of itself: `render_one` plays
+                // the plugin and puts its clips here, and there is more of it
+                // to come until the plugin says otherwise.
+                state.all_rendered = matches!(state.voices, Voices::Ready) && !claps.iter().any(|(i, _)| *i == ti);
                 state
             })
             .collect();
@@ -629,6 +652,7 @@ impl<'a> Stream<'a> {
             layers,
             key_tracks,
             key_used: key_source.is_some() && any_rendered,
+            claps,
             master: MasterState {
                 saturation: master.saturation,
                 comp: master.comp.as_ref().map(|c| Compressor::new(c, sr)),
@@ -658,10 +682,29 @@ impl<'a> Stream<'a> {
         let to = from + self.blocks * BLOCK;
         self.blocks = (self.blocks * 2).min(MOST_BLOCKS);
 
+        // The plugins first, here, on this one thread: each is played up to
+        // where the stretch ends, in the blocks it would have been played in
+        // anyway, and what it made is its track's audio for this stretch.
+        let (sr, timeline) = (self.sr, self.timeline);
+        for (ti, player) in &mut self.claps {
+            match player.render_to(to + BLOCK) {
+                Ok(clip) => {
+                    self.tracks[*ti].add_clip(&clip);
+                    self.tracks[*ti].all_rendered = player.finished();
+                }
+                Err(e) => {
+                    self.warnings.push(format!("track '{}': {e}", timeline.tracks[*ti].name));
+                    self.tracks[*ti].all_rendered = true;
+                }
+            }
+        }
+        if !self.claps.is_empty() {
+            self.timing.mark("plugins");
+        }
+
         // Every track a stretch further, and a block beyond it, so that the
         // inserts — whose silence check works in whole blocks — can be fed in
         // whole blocks from the track's own start and still reach `to`.
-        let (sr, timeline) = (self.sr, self.timeline);
         self.tracks.par_iter_mut().for_each(|track| track.render_to(&timeline.tracks[track.ti], to + BLOCK, sr));
         for track in &mut self.tracks {
             self.warnings.append(&mut track.warnings);

@@ -289,9 +289,10 @@ impl ClapInstance {
             .collect()
     }
 
-    /// Renders notes (times in seconds) for `length` seconds. `params` are
-    /// (parameter id, plain value) pairs applied before the first note.
-    pub fn render(&self, notes: &[TimedNote], params: &[(u32, f64)], length: f64, sample_rate: f32) -> Result<StereoClip, String> {
+    /// Sets the plugin playing a note list (times in seconds) over `length`
+    /// seconds, ready to be run block by block. `params` are (parameter id,
+    /// plain value) pairs applied before the first note.
+    pub fn start(self, notes: &[TimedNote], params: &[(u32, f64)], length: f64, sample_rate: f32) -> Result<ClapRun, String> {
         let sr = sample_rate as f64;
         let p = self.plugin;
         let out_ports = self.port_channels(false);
@@ -318,99 +319,184 @@ impl ClapInstance {
         events.sort_by_key(|e| (e.0, e.1));
 
         let make_buffers = |ports: &[u32]| -> Vec<Vec<Vec<f32>>> { ports.iter().map(|&c| vec![vec![0.0f32; BLOCK as usize]; c as usize]).collect() };
-        let mut out_data = make_buffers(&out_ports);
-        let mut in_data = make_buffers(&in_ports);
-
         // A short pre-roll lets the plugin apply the patch and parameters.
         let preroll = (0.25 * sr) as i64;
-        let total = preroll + (length * sr) as i64;
-        let mut left = Vec::with_capacity((length * sr) as usize);
-        let mut right = Vec::with_capacity((length * sr) as usize);
-        let mut next = 0usize;
-        let mut position = 0i64;
-        let mut params_sent = false;
-        let mut steady = 0i64;
-        while position < total {
-            let frames = (total - position).min(BLOCK as i64) as u32;
-            let mut list = EventList { events: Vec::new() };
-            // Wait until the plugin has applied the patch, then set parameters.
-            if !params_sent && position >= preroll / 2 {
-                for &(id, value) in params {
-                    list.events.push(EventSlot {
-                        param: clap_event_param_value {
-                            header: header::<clap_event_param_value>(0, CLAP_EVENT_PARAM_VALUE),
-                            param_id: id,
-                            cookie: ptr::null_mut(),
-                            note_id: -1,
-                            port_index: -1,
-                            channel: -1,
-                            key: -1,
-                            value,
-                        },
-                    });
-                }
-                params_sent = true;
-            }
-            let song_pos = position - preroll;
-            while next < events.len() && events[next].0 < song_pos + frames as i64 {
-                let (sample, on, key, velocity) = events[next];
-                let time = (sample - song_pos).max(0) as u32;
+        Ok(ClapRun {
+            out_data: make_buffers(&out_ports),
+            in_data: make_buffers(&in_ports),
+            events,
+            params: params.to_vec(),
+            preroll,
+            total: preroll + (length * sr) as i64,
+            next: 0,
+            position: 0,
+            steady: 0,
+            params_sent: false,
+            made: 0,
+            processing: true,
+            instance: self,
+        })
+    }
+
+    /// Renders notes (times in seconds) for `length` seconds, all of it at
+    /// once: a [`ClapRun`] played to its end.
+    pub fn render(self, notes: &[TimedNote], params: &[(u32, f64)], length: f64, sample_rate: f32) -> Result<StereoClip, String> {
+        let mut run = self.start(notes, params, length, sample_rate)?;
+        let (left, right) = run.render_to(usize::MAX)?;
+        Ok(StereoClip { offset: 0, left, right })
+    }
+}
+
+/// A plugin being played: everything the block loop carries between blocks, so
+/// that it can stop after one and go on from there later.
+///
+/// The plugin keeps its own state across `process` calls — that is what a
+/// plugin is — and this runs it in the same blocks, of the same size, in the
+/// same order, however often it is asked to stop. So a plugin track can be
+/// played as the song reaches its bars instead of all of it before the first
+/// one, and the samples are the ones it would have made either way.
+///
+/// **One thread.** Every call must come from the thread that started it: a
+/// plugin's `process` is the host's audio thread, and plugins keep state that
+/// belongs to it. The raw pointers in here are what make `ClapRun` not `Send`,
+/// so the compiler says so too.
+pub struct ClapRun {
+    instance: ClapInstance,
+    out_data: Vec<Vec<Vec<f32>>>,
+    in_data: Vec<Vec<Vec<f32>>>,
+    events: Vec<(i64, bool, i16, f64)>,
+    params: Vec<(u32, f64)>,
+    preroll: i64,
+    total: i64,
+    next: usize,
+    position: i64,
+    steady: i64,
+    params_sent: bool,
+    /// Frames of the song given out so far — the pre-roll is not one of them.
+    made: usize,
+    processing: bool,
+}
+
+impl ClapRun {
+    /// Whether the plugin has been played to the end of the song.
+    pub fn finished(&self) -> bool {
+        self.position >= self.total
+    }
+
+    /// Plays the plugin until it has made `to` frames of the song, and gives
+    /// back what this call made. `to` only says when to stop: the blocks
+    /// before it are the same blocks whenever it is asked for.
+    pub fn render_to(&mut self, to: usize) -> Result<(Vec<f32>, Vec<f32>), String> {
+        let (mut left, mut right) = (Vec::new(), Vec::new());
+        while self.made < to && self.position < self.total {
+            self.block(&mut left, &mut right)?;
+        }
+        if self.finished() {
+            self.stop();
+        }
+        Ok((left, right))
+    }
+
+    /// One block: the events that fall in it, the plugin over it, and what it
+    /// made of them.
+    fn block(&mut self, left: &mut Vec<f32>, right: &mut Vec<f32>) -> Result<(), String> {
+        let p = self.instance.plugin;
+        let frames = (self.total - self.position).min(BLOCK as i64) as u32;
+        let mut list = EventList { events: Vec::new() };
+        // Wait until the plugin has applied the patch, then set parameters.
+        if !self.params_sent && self.position >= self.preroll / 2 {
+            for &(id, value) in &self.params {
                 list.events.push(EventSlot {
-                    note: clap_event_note {
-                        header: header::<clap_event_note>(time, if on { CLAP_EVENT_NOTE_ON } else { CLAP_EVENT_NOTE_OFF }),
+                    param: clap_event_param_value {
+                        header: header::<clap_event_param_value>(0, CLAP_EVENT_PARAM_VALUE),
+                        param_id: id,
+                        cookie: ptr::null_mut(),
                         note_id: -1,
-                        port_index: 0,
-                        channel: 0,
-                        key,
-                        velocity,
+                        port_index: -1,
+                        channel: -1,
+                        key: -1,
+                        value,
                     },
                 });
-                next += 1;
             }
-            let input_events = clap_input_events { ctx: &list as *const _ as *mut c_void, size: Some(events_size), get: Some(events_get) };
-            let output_events = clap_output_events { ctx: ptr::null_mut(), try_push: Some(events_push) };
-
-            let mut out_ptrs: Vec<Vec<*mut f32>> = out_data.iter_mut().map(|port| port.iter_mut().map(|c| c.as_mut_ptr()).collect()).collect();
-            let mut in_ptrs: Vec<Vec<*mut f32>> = in_data.iter_mut().map(|port| port.iter_mut().map(|c| c.as_mut_ptr()).collect()).collect();
-            let mut outputs: Vec<clap_audio_buffer> = out_ptrs
-                .iter_mut()
-                .map(|ch| clap_audio_buffer { data32: ch.as_mut_ptr(), data64: ptr::null_mut(), channel_count: ch.len() as u32, latency: 0, constant_mask: 0 })
-                .collect();
-            let inputs: Vec<clap_audio_buffer> = in_ptrs
-                .iter_mut()
-                .map(|ch| clap_audio_buffer { data32: ch.as_mut_ptr(), data64: ptr::null_mut(), channel_count: ch.len() as u32, latency: 0, constant_mask: u64::MAX })
-                .collect();
-            let process = clap_process {
-                steady_time: steady,
-                frames_count: frames,
-                transport: ptr::null(),
-                audio_inputs: if inputs.is_empty() { ptr::null() } else { inputs.as_ptr() },
-                audio_outputs: outputs.as_mut_ptr(),
-                audio_inputs_count: inputs.len() as u32,
-                audio_outputs_count: outputs.len() as u32,
-                in_events: &input_events,
-                out_events: &output_events,
-            };
-            let status = unsafe { ((*p).process.unwrap())(p, &process) };
-            if status == CLAP_PROCESS_ERROR {
-                return Err("plugin reported a processing error".into());
-            }
-            self.pump_main_thread();
-            if position >= preroll {
-                let main = &out_data[0];
-                let l = &main[0][..frames as usize];
-                let r = if main.len() > 1 { &main[1][..frames as usize] } else { l };
-                left.extend_from_slice(l);
-                right.extend_from_slice(r);
-            }
-            position += frames as i64;
-            steady += frames as i64;
+            self.params_sent = true;
         }
+        let song_pos = self.position - self.preroll;
+        while self.next < self.events.len() && self.events[self.next].0 < song_pos + frames as i64 {
+            let (sample, on, key, velocity) = self.events[self.next];
+            let time = (sample - song_pos).max(0) as u32;
+            list.events.push(EventSlot {
+                note: clap_event_note {
+                    header: header::<clap_event_note>(time, if on { CLAP_EVENT_NOTE_ON } else { CLAP_EVENT_NOTE_OFF }),
+                    note_id: -1,
+                    port_index: 0,
+                    channel: 0,
+                    key,
+                    velocity,
+                },
+            });
+            self.next += 1;
+        }
+        let input_events = clap_input_events { ctx: &list as *const _ as *mut c_void, size: Some(events_size), get: Some(events_get) };
+        let output_events = clap_output_events { ctx: ptr::null_mut(), try_push: Some(events_push) };
+
+        let mut out_ptrs: Vec<Vec<*mut f32>> = self.out_data.iter_mut().map(|port| port.iter_mut().map(|c| c.as_mut_ptr()).collect()).collect();
+        let mut in_ptrs: Vec<Vec<*mut f32>> = self.in_data.iter_mut().map(|port| port.iter_mut().map(|c| c.as_mut_ptr()).collect()).collect();
+        let mut outputs: Vec<clap_audio_buffer> = out_ptrs
+            .iter_mut()
+            .map(|ch| clap_audio_buffer { data32: ch.as_mut_ptr(), data64: ptr::null_mut(), channel_count: ch.len() as u32, latency: 0, constant_mask: 0 })
+            .collect();
+        let inputs: Vec<clap_audio_buffer> = in_ptrs
+            .iter_mut()
+            .map(|ch| clap_audio_buffer { data32: ch.as_mut_ptr(), data64: ptr::null_mut(), channel_count: ch.len() as u32, latency: 0, constant_mask: u64::MAX })
+            .collect();
+        let process = clap_process {
+            steady_time: self.steady,
+            frames_count: frames,
+            transport: ptr::null(),
+            audio_inputs: if inputs.is_empty() { ptr::null() } else { inputs.as_ptr() },
+            audio_outputs: outputs.as_mut_ptr(),
+            audio_inputs_count: inputs.len() as u32,
+            audio_outputs_count: outputs.len() as u32,
+            in_events: &input_events,
+            out_events: &output_events,
+        };
+        let status = unsafe { ((*p).process.unwrap())(p, &process) };
+        if status == CLAP_PROCESS_ERROR {
+            return Err("plugin reported a processing error".into());
+        }
+        self.instance.pump_main_thread();
+        if self.position >= self.preroll {
+            let main = &self.out_data[0];
+            let l = &main[0][..frames as usize];
+            let r = if main.len() > 1 { &main[1][..frames as usize] } else { l };
+            left.extend_from_slice(l);
+            right.extend_from_slice(r);
+            self.made += frames as usize;
+        }
+        self.position += frames as i64;
+        self.steady += frames as i64;
+        Ok(())
+    }
+
+    /// Lets the plugin go: it has been played to the end, or it is being
+    /// dropped part-way through.
+    fn stop(&mut self) {
+        if !self.processing {
+            return;
+        }
+        self.processing = false;
+        let p = self.instance.plugin;
         unsafe {
             ((*p).stop_processing.unwrap())(p);
             ((*p).deactivate.unwrap())(p);
         }
-        Ok(StereoClip { offset: 0, left, right })
+    }
+}
+
+impl Drop for ClapRun {
+    fn drop(&mut self) {
+        self.stop();
     }
 }
 

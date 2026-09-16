@@ -540,22 +540,26 @@ next — a filter's state, the delay line, the reverb tank, a compressor's
 envelope, an LFO's phase, the limiter's look-ahead — carries across the
 boundaries between the stretches, so there is no seam at one. The finished file
 is the file `mat render` writes for the same song, byte for byte: every example
-that renders reproducibly at all comes out identical both ways. (A song with
-CLAP plugin tracks is not reproducible from one run to the next, streamed or
-not: the plugin is not.) So this is not `--bars`, which renders a window of the
+that renders reproducibly at all comes out identical both ways. (`harbour.song`
+and `drunken-sailor-trance-surge.song` are not reproducible from one run to the
+next, streamed or not: the plugin is not. Two plain renders of harbour are the
+same file up to 31.476 s and then differ over four fifths of their samples; a
+streamed one is the same file up to 31.476 s and then differs by as much. Over
+a window where the plugin does reproduce — `--bars 1-12` of harbour, `--bars
+1-6` of the surge song — a streamed render is a plain one byte for byte.) So
+this is not `--bars`, which renders a window of the
 song from silence and cannot carry a tail into it; nothing is missing from a
 streamed render.
 
 **When the first sound arrives.** In well under a tenth of a second for most
 songs: `examples/neon.song`, four minutes and ten layers, is playing 0.07 s
 after it was asked for, where the whole render takes five to seven seconds.
-Two kinds of track cannot be made a bar at a time and are rendered in full
-before the first stretch, so a song with one waits for it — a scratch track,
-which cuts its record out of a file or out of another track, and the tracks it
-cuts from (`examples/undertow-b.song`: 1.2 s); and a CLAP plugin, which is a
-plugin (`examples/harbour.song`: 11 s of its 23). Everything else — synths,
-drum kits, samplers, audio files, tb303s, Audio Unit tracks — is made when its
-bar comes.
+One kind of track cannot be made a bar at a time and is rendered in full before
+the first stretch, so a song with one waits for it: a scratch track, which cuts
+its record out of a file or out of another track, together with the tracks it
+cuts from (`examples/undertow-b.song` waits 1.4 s for the drum track its record
+is cut from). Everything else is made when its bar comes — synths, drum kits,
+samplers, audio files, tb303s, CLAP plugins, Audio Unit tracks.
 
 **What it costs.** Nothing much. It is the same work, spread a stretch at a
 time rather than a layer at a time, and a stretch has every layer in it to
