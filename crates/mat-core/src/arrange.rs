@@ -386,6 +386,32 @@ fn kind_label(kind: &InstrumentKind) -> &'static str {
     }
 }
 
+/// Where `samples:` points when `MAT_ASSETS` does not say.
+///
+/// The library is the checkout's `assets/samples`, and a `mat` can be run from
+/// three places: the checkout's own `target/<profile>`, where it sits three
+/// directories under the checkout; an install (`cargo install --path
+/// crates/mat-cli`, or a copy into `~/.cargo/bin`), which is nowhere near it;
+/// and anywhere else. The first is found beside the binary, the second through
+/// the checkout it was built from, which the build knows — and only then the
+/// working directory, which is the song's folder when an editor runs it.
+///
+/// Reported 2026-09-16 as "Mix view loses the drums" in an editor: an installed
+/// `mat` found no library, warned `cannot open assets/samples/...` for every
+/// voice of the kit, and wrote a render whose drums peaked at -23 dBFS instead
+/// of -0.3 — a successful render, as far as anyone watching the exit code knew.
+fn sample_library() -> std::path::PathBuf {
+    let beside_binary = std::env::current_exe()
+        .ok()
+        .and_then(|e| e.parent().and_then(Path::parent).and_then(Path::parent).map(|r| r.join("assets/samples")));
+    let built_from = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../assets/samples");
+    beside_binary
+        .into_iter()
+        .chain(std::iter::once(built_from))
+        .find(|p| p.is_dir())
+        .unwrap_or_else(|| Path::new("assets/samples").to_path_buf())
+}
+
 /// Resolves an instrument path: relative paths are taken relative to the song
 /// file, `logic:` / `garageband:` expand to the installed sampler instrument
 /// libraries and `gm` is the General MIDI sound bank of macOS.
@@ -394,14 +420,7 @@ pub fn resolve_load_path(load: &str, song_dir: &Path) -> String {
     const GARAGEBAND: &str = "/Library/Application Support/GarageBand/Instrument Library/Sampler/Sampler Instruments";
     const GM: &str = "/System/Library/Components/CoreAudio.component/Contents/Resources/gs_instruments.dls";
     const SURGE: &str = if cfg!(target_os = "macos") { "/Library/Application Support/Surge XT" } else { "/usr/share/surge-xt" };
-    let assets = std::env::var_os("MAT_ASSETS").map(std::path::PathBuf::from).unwrap_or_else(|| {
-        // <repo>/assets/samples, found relative to the binary in the development layout.
-        std::env::current_exe()
-            .ok()
-            .and_then(|e| e.parent().and_then(Path::parent).and_then(Path::parent).map(|r| r.join("assets/samples")))
-            .filter(|p| p.is_dir())
-            .unwrap_or_else(|| Path::new("assets/samples").to_path_buf())
-    });
+    let assets = std::env::var_os("MAT_ASSETS").map(std::path::PathBuf::from).unwrap_or_else(sample_library);
     let resolved = if let Some(rest) = load.strip_prefix("samples:") {
         assets.join(rest)
     } else if load == "gm" {
@@ -441,6 +460,27 @@ pub fn resolve_paths(timeline: &mut Timeline, song_dir: &Path) {
 
 #[cfg(test)]
 mod tests {
+    /// A test binary sits in `target/<profile>/deps`, so three directories up
+    /// is `target`, not the checkout: it is placed like an installed `mat`, and
+    /// the library can only be found through the checkout it was built from.
+    /// `MAT_ASSETS` is process-wide and is not changed here; the resolved path
+    /// is only checked when nobody has set it.
+    #[test]
+    fn a_binary_away_from_the_checkout_finds_the_checkouts_samples() {
+        let checkout = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..").canonicalize().unwrap();
+        let exe = std::env::current_exe().unwrap();
+        let beside = exe.parent().and_then(std::path::Path::parent).and_then(std::path::Path::parent).unwrap().join("assets/samples");
+        assert!(!beside.is_dir(), "{} exists, so this test would not reach the built-from checkout", beside.display());
+
+        let library = super::sample_library();
+        assert_eq!(library.canonicalize().unwrap(), checkout.join("assets/samples"));
+
+        if std::env::var_os("MAT_ASSETS").is_none() {
+            let resolved = super::resolve_load_path("samples:sonic-pi/bd_tek.wav", std::path::Path::new("/nonexistent/song"));
+            assert!(std::path::Path::new(&resolved).is_file(), "{resolved} is not the checkout's sample");
+        }
+    }
+
     /// Loops are written out by the parser, so a song with them is the song
     /// without them to everything after it: the same timeline, the same samples.
     #[test]
