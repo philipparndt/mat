@@ -71,6 +71,22 @@ enum Command {
         /// the edit touched. For editors that render on every save.
         #[arg(long)]
         cache: Option<PathBuf>,
+        /// Render the song in order of time and write it as it goes, so it can
+        /// be played while the rest of it renders. The output grows a stretch
+        /// at a time — the first lands in a fraction of a second — and
+        /// <output>.stream.json says how much of it is readable, ending
+        /// "finished": true.
+        ///
+        /// It is one render, not two: every effect that carries something from
+        /// one sample to the next carries it across a stretch, so there are no
+        /// seams, and the finished file is the file `mat render` writes, to
+        /// the byte. Unlike --bars, which renders a window of the song from
+        /// silence, nothing is missing from it.
+        ///
+        /// Goes with --stems, --cache and --bars; wants a .wav output, and
+        /// does not go with --loop.
+        #[arg(long)]
+        stream: bool,
     },
     /// Render a song and play it on the default audio device.
     Play { song: PathBuf },
@@ -152,7 +168,7 @@ fn run(cli: Cli) -> anyhow::Result<ExitCode> {
             print_summary(&timeline);
             println!("ok");
         }
-        Command::Render { song, output, sample_rate, bits, bitrate, bars, r#loop, stems, cache } => {
+        Command::Render { song, output, sample_rate, bits, bitrate, bars, r#loop, stems, cache, stream } => {
             let output = output.unwrap_or_else(|| song.with_extension("wav"));
             let depth = match bits {
                 Bits::B16 => BitDepth::Int16,
@@ -162,6 +178,14 @@ fn run(cli: Cli) -> anyhow::Result<ExitCode> {
             // Checked before rendering, which can take minutes.
             let encoding = Encoding { format: Format::from_path(&output).map_err(anyhow::Error::msg)?, depth, bitrate };
             encoding.check().map_err(anyhow::Error::msg)?;
+            if stream {
+                if encoding.format != Format::Wav {
+                    bail!("--stream writes a .wav: a FLAC or an AAC is encoded from the whole render, so there is nothing to write until it is done");
+                }
+                if r#loop {
+                    bail!("--stream and --loop do not go together: a loop folds the song's tail back into its start, so it is finished only at the end");
+                }
+            }
             let Some((mut timeline, sources)) = load(&song)? else { return Ok(ExitCode::FAILURE) };
             // Only part of the song: everything outside those bars goes before
             // a voice is synthesised, so the render costs what they cost.
@@ -183,7 +207,10 @@ fn run(cli: Cli) -> anyhow::Result<ExitCode> {
             let played = (timeline.end - lead_in).max(0.0);
             // One render, split into layers when stems are wanted: a stem is
             // the song's own take of its tracks, not a solo render of them.
-            let rendering = render_song(&timeline, sample_rate, stems.is_some(), cache.clone());
+            let rendering = match stream {
+                true => stream_song(&timeline, sample_rate, stems.is_some(), cache.clone(), &output, depth)?,
+                false => render_song(&timeline, sample_rate, stems.is_some(), cache.clone()),
+            };
             let layers_peak_db = rendering.layers_peak_db;
             let mut audio = rendering.mix;
             if let Some(secs) = loop_seconds {
@@ -194,7 +221,11 @@ fn run(cli: Cli) -> anyhow::Result<ExitCode> {
                 // AAC reconstructs peaks between samples higher than the render's.
                 eprintln!("warning: peak {:.1} dBFS leaves under 1 dB for the AAC encoder; the file may clip on playback", audio.peak_db());
             }
-            write_audio(&output, &audio, &encoding).map_err(anyhow::Error::msg).with_context(|| format!("writing {}", output.display()))?;
+            // A streamed render has written the mix already, a stretch at a
+            // time, and what is there is what would be written here.
+            if !stream {
+                write_audio(&output, &audio, &encoding).map_err(anyhow::Error::msg).with_context(|| format!("writing {}", output.display()))?;
+            }
             println!("wrote {}", output.display());
 
             if let Some(dir) = stems {
@@ -462,6 +493,105 @@ fn render_song(timeline: &Timeline, sample_rate: u32, split: bool, cache: Option
         audio.rms_db()
     );
     rendering
+}
+
+/// Renders the song in order of time, writing the WAV and its `stream.json`
+/// as each stretch lands, and prints what an ordinary render prints plus how
+/// long the first stretch took.
+fn stream_song(
+    timeline: &Timeline,
+    sample_rate: u32,
+    split: bool,
+    cache: Option<PathBuf>,
+    output: &Path,
+    depth: BitDepth,
+) -> anyhow::Result<mat_core::render::Rendering> {
+    let started = Instant::now();
+    let stems = match render_audio_unit_stems(timeline, sample_rate) {
+        Ok(stems) => stems,
+        Err(err) => {
+            eprintln!("warning: {err:#}");
+            HashMap::new()
+        }
+    };
+    let options = mat_core::render::RenderOptions { split, cache };
+    let mut stream = mat_core::stream::Stream::start(timeline, sample_rate, stems, &options);
+    let mut writer = mat_core::wav::WavStream::create(output, sample_rate, depth).with_context(|| format!("writing {}", output.display()))?;
+    let status = Status { path: output.with_extension("stream.json"), file: output.file_name().unwrap_or(output.as_os_str()).to_string_lossy().into_owned() };
+    // An empty file, said to be empty, before the first stretch: an editor
+    // that is already watching learns the render has begun.
+    status.write(&writer, timeline, sample_rate, false)?;
+
+    let mut first = None;
+    for part in stream.by_ref() {
+        writer.append(&part.left, &part.right).with_context(|| format!("writing {}", output.display()))?;
+        status.write(&writer, timeline, sample_rate, false)?;
+        if first.is_none() {
+            first = Some(started.elapsed().as_secs_f64());
+            println!("streaming {}: {} playable after {:.2}s", output.display(), format_time(part.frames() as f64 / sample_rate as f64), first.unwrap_or_default());
+        }
+    }
+    let rendering = stream.finish();
+    // The render keeps a little less than it gave out: the trailing silence is
+    // cut and the fade before it applied. That end is written again here, and
+    // the file is cut to it.
+    let faded = (mat_core::render::FADE_SECONDS * sample_rate as f32) as usize;
+    let changed_from = rendering.mix.left.len().saturating_sub(faded);
+    writer.finish(&rendering.mix, changed_from).with_context(|| format!("writing {}", output.display()))?;
+    status.write(&writer, timeline, sample_rate, true)?;
+
+    for warning in &rendering.report.warnings {
+        eprintln!("warning: {warning}");
+    }
+    for name in &rendering.report.skipped_tracks {
+        eprintln!("warning: track '{name}' uses an Audio Unit instrument and was skipped");
+    }
+    let secs = started.elapsed().as_secs_f64();
+    let audio = &rendering.mix;
+    println!(
+        "streamed {} in {:.2}s ({:.0}x realtime), first sound after {:.2}s, peak {:.1} dBFS, rms {:.1} dBFS",
+        format_time(audio.duration()),
+        secs,
+        audio.duration() / secs.max(1e-6),
+        first.unwrap_or(secs),
+        audio.peak_db(),
+        audio.rms_db()
+    );
+    println!("wrote {}", status.path.display());
+    Ok(rendering)
+}
+
+/// The small JSON beside a streamed render that says how much of it can be
+/// read. Written after the samples it counts, and written whole, under a
+/// temporary name and renamed, so a reader never sees half of one.
+struct Status {
+    path: PathBuf,
+    file: String,
+}
+
+impl Status {
+    fn write(&self, writer: &mat_core::wav::WavStream, timeline: &Timeline, sample_rate: u32, finished: bool) -> anyhow::Result<()> {
+        let seconds = writer.frames() as f64 / sample_rate as f64;
+        let status = serde_json::json!({
+            "file": self.file,
+            "sample_rate": sample_rate,
+            "channels": 2,
+            "bits": writer.bytes_per_frame() * 8 / 2,
+            // For a reader that goes at the bytes rather than the header.
+            "data_offset": writer.data_offset(),
+            "bytes_per_frame": writer.bytes_per_frame(),
+            "frames_written": writer.frames(),
+            "seconds_written": seconds,
+            "bars_written": (seconds / timeline.bar_seconds).floor() as u64,
+            "bar_seconds": timeline.bar_seconds,
+            "tempo": timeline.tempo,
+            "finished": finished,
+        });
+        let temporary = self.path.with_extension(format!("{}.tmp", std::process::id()));
+        std::fs::write(&temporary, serde_json::to_string_pretty(&status)?).with_context(|| format!("writing {}", temporary.display()))?;
+        std::fs::rename(&temporary, &self.path).with_context(|| format!("writing {}", self.path.display()))?;
+        Ok(())
+    }
 }
 
 /// Renders Audio Unit tracks with the macOS `mat-au` host into dry stems.

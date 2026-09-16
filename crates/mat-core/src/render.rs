@@ -449,7 +449,7 @@ pub fn render_with(timeline: &Timeline, sample_rate: u32, mut stems: HashMap<usi
 /// Drops the lead-in from the front of a render of part of a song, and fades
 /// the cut over 5 ms: what is left begins in the middle of the music, and a
 /// file whose first sample is far from zero clicks when it is played.
-fn drop_lead_in(left: &mut Vec<f32>, right: &mut Vec<f32>, frames: usize, sr: f32) {
+pub(crate) fn drop_lead_in(left: &mut Vec<f32>, right: &mut Vec<f32>, frames: usize, sr: f32) {
     if frames == 0 {
         return;
     }
@@ -465,7 +465,7 @@ fn drop_lead_in(left: &mut Vec<f32>, right: &mut Vec<f32>, frames: usize, sr: f3
 }
 
 /// How long the send effects ring after the last sound.
-fn tail_seconds(timeline: &Timeline) -> f64 {
+pub(crate) fn tail_seconds(timeline: &Timeline) -> f64 {
     let master = &timeline.master;
     (if master.reverb.enabled { 1.5 + 6.0 * master.reverb.decay as f64 } else { 0.5 })
         + if master.delay.enabled { delay_tail(timeline.delay_seconds, master.delay.feedback) } else { 0.0 }
@@ -473,17 +473,17 @@ fn tail_seconds(timeline: &Timeline) -> f64 {
 
 /// Phase timings on stderr when `MAT_TIMING` is set: where a render's time
 /// goes, which is the question every speed-up here starts from.
-struct Timing {
+pub(crate) struct Timing {
     on: bool,
     last: std::sync::Mutex<std::time::Instant>,
 }
 
 impl Timing {
-    fn from_env() -> Self {
+    pub(crate) fn from_env() -> Self {
         Timing { on: std::env::var_os("MAT_TIMING").is_some(), last: std::sync::Mutex::new(std::time::Instant::now()) }
     }
 
-    fn mark(&self, phase: &str) {
+    pub(crate) fn mark(&self, phase: &str) {
         if !self.on {
             return;
         }
@@ -493,7 +493,7 @@ impl Timing {
         *last = now;
     }
 
-    fn say(&self, line: &str) {
+    pub(crate) fn say(&self, line: &str) {
         if self.on {
             eprintln!("timing            {line}");
         }
@@ -677,7 +677,7 @@ fn through_linear_master(
     (left, right)
 }
 
-fn render_track(track: &TimelineTrack, sr: f32) -> Option<Result<Vec<StereoClip>, String>> {
+pub(crate) fn render_track(track: &TimelineTrack, sr: f32) -> Option<Result<Vec<StereoClip>, String>> {
     match &track.instrument {
         InstrumentKind::Sampler(def) => Some(
             Sampler::load(std::path::Path::new(&def.load)).and_then(|sampler| sampler.render(&track.notes, def, sr)),
@@ -725,7 +725,7 @@ fn render_track(track: &TimelineTrack, sr: f32) -> Option<Result<Vec<StereoClip>
     }
 }
 
-fn render_clap(def: &crate::model::ClapDef, notes: &[crate::arrange::TimedNote], sr: f32) -> Result<StereoClip, String> {
+pub(crate) fn render_clap(def: &crate::model::ClapDef, notes: &[crate::arrange::TimedNote], sr: f32) -> Result<StereoClip, String> {
     let instance = crate::clap_host::ClapInstance::load(&def.plugin, def.plugin_id.as_deref())?;
     if let Some(patch) = &def.patch {
         instance.load_preset(std::path::Path::new(patch))?;
@@ -749,7 +749,7 @@ fn render_clap(def: &crate::model::ClapDef, notes: &[crate::arrange::TimedNote],
 }
 
 /// Reads the clips of an audio track, resampling if the file rate differs.
-fn render_audio(file: &AudioFile, clips: &[AudioClip], sr: f32) -> Result<Vec<StereoClip>, String> {
+pub(crate) fn render_audio(file: &AudioFile, clips: &[AudioClip], sr: f32) -> Result<Vec<StereoClip>, String> {
     let file_rate = file.sample_rate;
     let duration = file.frames as f64 / file_rate;
     let fade = (0.005 * sr) as usize;
@@ -858,7 +858,7 @@ pub fn fold_loop(audio: &mut Audio, seconds: f64) {
 
 /// Removes trailing near-silence and applies a short fade-out. Returns the
 /// length kept, so the layers of a split render can be cut to the same.
-fn trim_tail(left: &mut Vec<f32>, right: &mut Vec<f32>, sr: f32) -> usize {
+pub(crate) fn trim_tail(left: &mut Vec<f32>, right: &mut Vec<f32>, sr: f32) -> usize {
     let threshold = 10f32.powf(-70.0 / 20.0);
     let last = (0..left.len()).rev().find(|&i| left[i].abs() > threshold || right[i].abs() > threshold);
     let end = last.map_or(0, |i| (i + (0.1 * sr) as usize).min(left.len()));
@@ -868,10 +868,13 @@ fn trim_tail(left: &mut Vec<f32>, right: &mut Vec<f32>, sr: f32) -> usize {
     end
 }
 
+/// How long the fade at the very end of a render is.
+pub const FADE_SECONDS: f32 = 0.05;
+
 /// A 50 ms fade at the very end.
-fn fade_out(left: &mut [f32], right: &mut [f32], sr: f32) {
+pub(crate) fn fade_out(left: &mut [f32], right: &mut [f32], sr: f32) {
     let end = left.len();
-    let fade = ((0.05 * sr) as usize).min(end);
+    let fade = ((FADE_SECONDS * sr) as usize).min(end);
     for k in 0..fade {
         let g = k as f32 / fade as f32;
         left[end - 1 - k] *= g;

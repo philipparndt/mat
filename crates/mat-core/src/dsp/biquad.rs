@@ -80,51 +80,73 @@ impl Biquad {
     }
 }
 
-/// Applies a track EQ to a stereo buffer in place.
-pub fn apply_eq(eq: &EqSettings, left: &mut [f32], right: &mut [f32], sr: f32) {
-    let mut stages: Vec<Biquad> = Vec::new();
-    if eq.lowcut_hz > 0.0 {
-        stages.push(Biquad::highpass(eq.lowcut_hz, FRAC_1_SQRT_2, sr));
+/// A track or master EQ and the state it carries from one sample to the next.
+///
+/// Kept, it filters a signal that arrives a stretch at a time — which is how
+/// `crate::stream` renders — to the very samples one call over the whole
+/// signal produces, so long as every stretch but the last is a whole number of
+/// [`BLOCK`]s: the silence check below looks at blocks, and they have to be
+/// the same blocks.
+pub struct EqChain {
+    filters: [Vec<Biquad>; 2],
+    quiet: [bool; 2],
+}
+
+impl EqChain {
+    pub fn new(eq: &EqSettings, sr: f32) -> Self {
+        let mut stages: Vec<Biquad> = Vec::new();
+        if eq.lowcut_hz > 0.0 {
+            stages.push(Biquad::highpass(eq.lowcut_hz, FRAC_1_SQRT_2, sr));
+        }
+        if eq.low_db != 0.0 {
+            stages.push(Biquad::low_shelf(eq.low_freq_hz, eq.low_db, sr));
+        }
+        if eq.mid_db != 0.0 {
+            stages.push(Biquad::peak(eq.mid_freq_hz, 0.9, eq.mid_db, sr));
+        }
+        if eq.high_db != 0.0 {
+            stages.push(Biquad::high_shelf(eq.high_freq_hz, eq.high_db, sr));
+        }
+        if eq.highcut_hz > 0.0 {
+            stages.push(Biquad::lowpass(eq.highcut_hz, FRAC_1_SQRT_2, sr));
+        }
+        EqChain { filters: [stages.clone(), stages], quiet: [true; 2] }
     }
-    if eq.low_db != 0.0 {
-        stages.push(Biquad::low_shelf(eq.low_freq_hz, eq.low_db, sr));
-    }
-    if eq.mid_db != 0.0 {
-        stages.push(Biquad::peak(eq.mid_freq_hz, 0.9, eq.mid_db, sr));
-    }
-    if eq.high_db != 0.0 {
-        stages.push(Biquad::high_shelf(eq.high_freq_hz, eq.high_db, sr));
-    }
-    if eq.highcut_hz > 0.0 {
-        stages.push(Biquad::lowpass(eq.highcut_hz, FRAC_1_SQRT_2, sr));
-    }
-    for channel in [left, right] {
-        let mut filters = stages.clone();
-        // Silence skipped, as in the send effects (see `dsp::quiet`): a zero
-        // block through filters whose state is below `QUIET` is left at zero
-        // and the state cleared. A master EQ runs once per stem over the whole
-        // song, and a stem is mostly rests — 250 ms a stem before this.
-        let mut quiet = true;
-        for block in channel.chunks_mut(BLOCK) {
-            let silent = block.iter().all(|s| *s == 0.0);
-            if quiet && silent {
-                continue;
-            }
-            quiet = false;
-            for s in block.iter_mut() {
-                for f in &mut filters {
-                    *s = f.process(*s);
+
+    /// Filters the next stretch of a stereo signal in place.
+    pub fn process(&mut self, left: &mut [f32], right: &mut [f32]) {
+        for (ch, channel) in [left, right].into_iter().enumerate() {
+            let filters = &mut self.filters[ch];
+            // Silence skipped, as in the send effects (see `dsp::quiet`): a zero
+            // block through filters whose state is below `QUIET` is left at zero
+            // and the state cleared. A master EQ runs once per stem over the whole
+            // song, and a stem is mostly rests — 250 ms a stem before this.
+            for block in channel.chunks_mut(BLOCK) {
+                let silent = block.iter().all(|s| *s == 0.0);
+                if self.quiet[ch] && silent {
+                    continue;
                 }
-            }
-            let peak = block.iter().fold(0.0f32, |m, s| m.max(s.abs()));
-            if silent && peak < QUIET && filters.iter().all(|f| f.z1.abs() < QUIET && f.z2.abs() < QUIET) {
-                block.fill(0.0);
-                filters.iter_mut().for_each(|f| {
-                    f.z1 = 0.0;
-                    f.z2 = 0.0;
-                });
-                quiet = true;
+                self.quiet[ch] = false;
+                for s in block.iter_mut() {
+                    for f in filters.iter_mut() {
+                        *s = f.process(*s);
+                    }
+                }
+                let peak = block.iter().fold(0.0f32, |m, s| m.max(s.abs()));
+                if silent && peak < QUIET && filters.iter().all(|f| f.z1.abs() < QUIET && f.z2.abs() < QUIET) {
+                    block.fill(0.0);
+                    filters.iter_mut().for_each(|f| {
+                        f.z1 = 0.0;
+                        f.z2 = 0.0;
+                    });
+                    self.quiet[ch] = true;
+                }
             }
         }
     }
+}
+
+/// Applies a track EQ to a stereo buffer in place.
+pub fn apply_eq(eq: &EqSettings, left: &mut [f32], right: &mut [f32], sr: f32) {
+    EqChain::new(eq, sr).process(left, right);
 }

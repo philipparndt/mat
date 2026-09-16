@@ -66,6 +66,28 @@ pub struct NotePlan {
 
 type Region = Arc<(Vec<f32>, Vec<f32>)>;
 
+/// A sampler with a track's notes planned and their sample data read, so that
+/// any one note can be rendered on its own. See [`Sampler::prepare`].
+pub struct Prepared {
+    sampler: Sampler,
+    def: SamplerDef,
+    plans: Vec<NotePlan>,
+    regions: HashMap<usize, Region>,
+    sample_rate: f32,
+}
+
+impl Prepared {
+    /// The clips of note `index` — the note the plan at that index was made
+    /// for, which is the caller's to pass back.
+    pub fn render_note(&self, index: usize, note: &TimedNote) -> Vec<StereoClip> {
+        let plan = &self.plans[index];
+        plan.zones
+            .iter()
+            .map(|&zi| self.sampler.render_voice(zi, &self.regions[&zi], note, &self.def, plan.choke_at, self.sample_rate))
+            .collect()
+    }
+}
+
 impl Sampler {
     pub fn load(path: &Path) -> Result<Self, String> {
         let instrument = exs::read(path)?;
@@ -269,8 +291,12 @@ impl Sampler {
         (file.sample_rate / sample_rate as f64 * 2f64.powf(semis / 12.0), file)
     }
 
-    /// Renders all notes of a track.
-    pub fn render(&self, notes: &[TimedNote], def: &SamplerDef, sample_rate: f32) -> Result<Vec<StereoClip>, String> {
+    /// Everything a track's notes need before any of them is rendered: which
+    /// zones each note plays, and the sample data those zones read. Rendering
+    /// a note is then a function of the note alone, which is what lets a
+    /// streamed render (`crate::stream`) play the notes of one bar without
+    /// touching the rest of the song.
+    pub fn prepare(self, notes: &[TimedNote], def: &SamplerDef, sample_rate: f32) -> Result<Prepared, String> {
         let plans = self.plan(notes, def);
 
         // Load each zone region once, as long as its longest use requires.
@@ -290,15 +316,13 @@ impl Sampler {
             regions.lock().unwrap().insert(zi, region);
             Ok(())
         })?;
-        let regions = regions.into_inner().unwrap();
+        Ok(Prepared { sampler: self, def: def.clone(), plans, regions: regions.into_inner().unwrap(), sample_rate })
+    }
 
-        let clips = notes
-            .par_iter()
-            .zip(plans.par_iter())
-            .flat_map_iter(|(note, plan)| {
-                plan.zones.iter().map(|&zi| self.render_voice(zi, &regions[&zi], note, def, plan.choke_at, sample_rate)).collect::<Vec<_>>()
-            })
-            .collect();
+    /// Renders all notes of a track.
+    pub fn render(self, notes: &[TimedNote], def: &SamplerDef, sample_rate: f32) -> Result<Vec<StereoClip>, String> {
+        let prepared = self.prepare(notes, def, sample_rate)?;
+        let clips = notes.par_iter().enumerate().flat_map_iter(|(i, note)| prepared.render_note(i, note)).collect();
         Ok(clips)
     }
 

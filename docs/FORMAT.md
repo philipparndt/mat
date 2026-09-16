@@ -467,6 +467,82 @@ Each layer's `key` and whether it was `cached` are in `manifest.json`. A cache
 file no render has used for 30 minutes is deleted by the next render. The cache
 is large: a four-minute song of ten layers holds about a gigabyte and a half.
 
+## Rendering while it plays
+
+```sh
+mat render song.song --stream                                  # the file grows; play it at once
+mat render song.song --stream --stems out/ --cache .mat-cache/
+```
+
+`--stream` renders the song in order of time and writes it as it goes, so a
+four-minute song can be playing a tenth of a second after it was asked for
+instead of six seconds later. Beside the output it keeps
+`<output>.stream.json`, which says how much of the file can be read:
+
+```json
+{
+  "file": "song.wav",
+  "sample_rate": 48000, "channels": 2, "bits": 24,
+  "data_offset": 68, "bytes_per_frame": 6,
+  "frames_written": 786432, "seconds_written": 16.384,
+  "bars_written": 8, "bar_seconds": 1.875, "tempo": 128,
+  "finished": false
+}
+```
+
+Poll that file. It is written whole, under a temporary name and renamed, after
+the samples it counts, so it never claims more of the WAV than is there; the
+WAV's own header says the same, so a player that only reads the WAV is right
+too. It ends `"finished": true`.
+
+**It is one render, not two.** Everything that carries from one sample to the
+next — a filter's state, the delay line, the reverb tank, a compressor's
+envelope, an LFO's phase, the limiter's look-ahead — carries across the
+boundaries between the stretches, so there is no seam at one. The finished file
+is the file `mat render` writes for the same song, byte for byte: every example
+that renders reproducibly at all comes out identical both ways. (A song with
+CLAP plugin tracks is not reproducible from one run to the next, streamed or
+not: the plugin is not.) So this is not `--bars`, which renders a window of the
+song from silence and cannot carry a tail into it; nothing is missing from a
+streamed render.
+
+**When the first sound arrives.** In well under a tenth of a second for most
+songs: `examples/neon.song`, four minutes and ten layers, is playing 0.07 s
+after it was asked for, where the whole render takes five to seven seconds.
+Three kinds of track cannot be made a bar at a time and are rendered in full
+before the first stretch, so a song with one waits for it — a tb303, whose
+filter and slide run the length of the track (`examples/dream.song` waits 0.7 s
+for its acid line); a scratch track, which cuts its record out of a file or out
+of another track, and the tracks it cuts from (`examples/undertow-b.song`:
+1.2 s); and a CLAP plugin, which is a plugin (`examples/harbour.song`: 11 s of
+its 23). Everything else — synths, drum kits, samplers, audio files, Audio Unit
+tracks — is made when its bar comes.
+
+**What it costs.** Nothing much. It is the same work, spread a stretch at a
+time rather than a layer at a time, and a stretch has every layer in it to
+spread across where the ordinary render runs three side by side. Three runs
+each on a machine at load 35-40: neon 7.0 s ordinary against 5.2 s streamed,
+`undertow.song` 13.6 s against 12.5 s, `dream.song` 12.5 s against 12.3 s.
+
+`--stems` and `--cache` work as they always do. The stems and `manifest.json`
+are written at the end, from the same layers, and are the same files an
+ordinary render writes. A streamed render reads and fills the *same* layer
+cache as an ordinary one, under the same keys, so an editor can stream one
+render and not the next.
+
+`--bars` works too, and is mostly redundant now: a streamed whole render is
+playing sooner than a stretch used to be, and it is the whole song.
+
+`--stream` writes a `.wav` — a FLAC or an AAC is encoded from the finished
+render, so there is nothing to write until it is done — and does not go with
+`--loop`, which folds the song's tail back into its start.
+
+**The end moves.** A render's last act is to cut the trailing near-silence and
+fade the 50 ms before it. So the last stretch and a little before it are
+written again at the end, and the file can end up shorter than it was a moment
+earlier — by silence, and never by more than that. Everything before it was
+final when it was written, and stays as it was.
+
 ## Rendering part of a song
 
 ```sh
@@ -484,7 +560,8 @@ It is much faster than rendering the whole song, because everything outside
 those bars is thrown away before a voice is synthesised: eight bars of a
 four-minute song render in about half a second where the whole takes six. An
 editor can play the bars somebody is working on at once, and swap in the whole
-song when it lands.
+song when it lands. `--stream` above does better at that, and does it to the
+whole song.
 
 **What a stretch carries in.** Everything that *starts* inside it sounds as the
 song does at those bars: the same notes, the same takes, the same track and

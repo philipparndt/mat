@@ -3,29 +3,112 @@
 use crate::dsp::filter::Svf;
 use crate::model::{CompSettings, FilterMode, MasterSidechain};
 
+/// A master sidechain and the envelope it carries. Kept, it ducks a signal
+/// that arrives a stretch at a time — which is how `crate::stream` renders —
+/// to the samples one call over the whole signal produces.
+pub struct KeyedCompressor {
+    settings: MasterSidechain,
+    attack: f32,
+    release: f32,
+    ratio: f32,
+    env_db: f32,
+    lp: [Svf; 2],
+    sr: f32,
+}
+
+impl KeyedCompressor {
+    pub fn new(sc: &MasterSidechain, sr: f32) -> Self {
+        KeyedCompressor {
+            settings: sc.clone(),
+            attack: (-1.0 / (sc.attack.max(0.0002) * sr)).exp(),
+            release: (-1.0 / (sc.release.max(0.005) * sr)).exp(),
+            ratio: sc.ratio.max(1.0),
+            env_db: 0.0,
+            lp: [Svf::default(), Svf::default()],
+            sr,
+        }
+    }
+
+    pub fn process(&mut self, key_l: &[f32], key_r: &[f32], left: &mut [f32], right: &mut [f32]) {
+        let (sc, sr) = (&self.settings, self.sr);
+        for i in 0..left.len() {
+            let peak = key_l.get(i).copied().unwrap_or(0.0).abs().max(key_r.get(i).copied().unwrap_or(0.0).abs());
+            let over = 20.0 * peak.max(1e-9).log10() - sc.threshold_db;
+            let target = if over > 0.0 { -over * (1.0 - 1.0 / self.ratio) } else { 0.0 };
+            let coef = if target < self.env_db { self.attack } else { self.release };
+            self.env_db = target + (self.env_db - target) * coef;
+            let g = 10f32.powf(self.env_db / 20.0);
+            left[i] *= g;
+            right[i] *= g;
+            if sc.darken > 0.0 {
+                let cutoff = (18_000.0 * 2f32.powf(sc.darken * self.env_db / 12.0)).max(200.0);
+                for (f, s) in self.lp.iter_mut().zip([&mut left[i], &mut right[i]]) {
+                    f.set(cutoff, 0.0, sr);
+                    *s = f.process(*s, FilterMode::Lowpass);
+                }
+            }
+        }
+    }
+}
+
 /// Compresses `left`/`right` with the key signal as the detector. With
 /// `darken`, a lowpass on the compressed signal closes along with the gain.
 pub fn keyed_compress(sc: &MasterSidechain, key_l: &[f32], key_r: &[f32], left: &mut [f32], right: &mut [f32], sr: f32) {
-    let attack = (-1.0 / (sc.attack.max(0.0002) * sr)).exp();
-    let release = (-1.0 / (sc.release.max(0.005) * sr)).exp();
-    let ratio = sc.ratio.max(1.0);
-    let mut env_db = 0.0f32;
-    let mut lp = [Svf::default(), Svf::default()];
-    for i in 0..left.len() {
-        let peak = key_l.get(i).copied().unwrap_or(0.0).abs().max(key_r.get(i).copied().unwrap_or(0.0).abs());
-        let over = 20.0 * peak.max(1e-9).log10() - sc.threshold_db;
-        let target = if over > 0.0 { -over * (1.0 - 1.0 / ratio) } else { 0.0 };
-        let coef = if target < env_db { attack } else { release };
-        env_db = target + (env_db - target) * coef;
-        let g = 10f32.powf(env_db / 20.0);
-        left[i] *= g;
-        right[i] *= g;
-        if sc.darken > 0.0 {
-            let cutoff = (18_000.0 * 2f32.powf(sc.darken * env_db / 12.0)).max(200.0);
-            for (f, s) in lp.iter_mut().zip([&mut left[i], &mut right[i]]) {
-                f.set(cutoff, 0.0, sr);
-                *s = f.process(*s, FilterMode::Lowpass);
+    KeyedCompressor::new(sc, sr).process(key_l, key_r, left, right);
+}
+
+/// A compressor and the envelope it carries. Kept, it compresses a signal that
+/// arrives a stretch at a time — which is how `crate::stream` renders — to the
+/// samples one call over the whole signal produces.
+pub struct Compressor {
+    settings: CompSettings,
+    attack: f32,
+    release: f32,
+    ratio: f32,
+    makeup: f32,
+    env_db: f32,
+    last_gain: f32,
+}
+
+impl Compressor {
+    pub fn new(settings: &CompSettings, sr: f32) -> Self {
+        Compressor {
+            settings: settings.clone(),
+            attack: (-1.0 / (settings.attack.max(0.0005) * sr)).exp(),
+            release: (-1.0 / (settings.release.max(0.005) * sr)).exp(),
+            ratio: settings.ratio.max(1.0),
+            makeup: 10f32.powf(settings.makeup_db / 20.0),
+            env_db: -120.0,
+            last_gain: 1.0,
+        }
+    }
+
+    pub fn process(&mut self, left: &mut [f32], right: &mut [f32]) {
+        let settings = &self.settings;
+        let knee = 6.0f32;
+        for i in 0..left.len() {
+            let mut peak = left[i].abs().max(right[i].abs());
+            if settings.feedback {
+                // Detect after the gain stage: the previous gain shapes what the detector sees.
+                peak *= self.last_gain;
             }
+            let level_db = 20.0 * peak.max(1e-9).log10();
+            let over = level_db - settings.threshold_db;
+            // Soft knee: quadratic transition around the threshold.
+            let reduction = if over <= -knee / 2.0 {
+                0.0
+            } else if over >= knee / 2.0 {
+                over * (1.0 - 1.0 / self.ratio)
+            } else {
+                (1.0 - 1.0 / self.ratio) * (over + knee / 2.0).powi(2) / (2.0 * knee)
+            };
+            let target = -reduction;
+            let coef = if target < self.env_db { self.attack } else { self.release };
+            self.env_db = target + (self.env_db - target) * coef;
+            let g = 10f32.powf(self.env_db / 20.0);
+            self.last_gain = g;
+            left[i] *= g * self.makeup;
+            right[i] *= g * self.makeup;
         }
     }
 }
@@ -33,37 +116,7 @@ pub fn keyed_compress(sc: &MasterSidechain, key_l: &[f32], key_r: &[f32], left: 
 /// Feed-forward stereo compressor with a peak detector, soft knee and
 /// smoothed gain; the gain is linked between channels.
 pub fn compress(settings: &CompSettings, left: &mut [f32], right: &mut [f32], sr: f32) {
-    let attack = (-1.0 / (settings.attack.max(0.0005) * sr)).exp();
-    let release = (-1.0 / (settings.release.max(0.005) * sr)).exp();
-    let knee = 6.0f32;
-    let ratio = settings.ratio.max(1.0);
-    let makeup = 10f32.powf(settings.makeup_db / 20.0);
-    let mut env_db = -120.0f32;
-    let mut last_gain = 1.0f32;
-    for i in 0..left.len() {
-        let mut peak = left[i].abs().max(right[i].abs());
-        if settings.feedback {
-            // Detect after the gain stage: the previous gain shapes what the detector sees.
-            peak *= last_gain;
-        }
-        let level_db = 20.0 * peak.max(1e-9).log10();
-        let over = level_db - settings.threshold_db;
-        // Soft knee: quadratic transition around the threshold.
-        let reduction = if over <= -knee / 2.0 {
-            0.0
-        } else if over >= knee / 2.0 {
-            over * (1.0 - 1.0 / ratio)
-        } else {
-            (1.0 - 1.0 / ratio) * (over + knee / 2.0).powi(2) / (2.0 * knee)
-        };
-        let target = -reduction;
-        let coef = if target < env_db { attack } else { release };
-        env_db = target + (env_db - target) * coef;
-        let g = 10f32.powf(env_db / 20.0);
-        last_gain = g;
-        left[i] *= g * makeup;
-        right[i] *= g * makeup;
-    }
+    Compressor::new(settings, sr).process(left, right);
 }
 
 /// Soft clipper: linear below the threshold, a smooth knee above it that
