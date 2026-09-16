@@ -2,6 +2,7 @@
 //! timeline and render them to audio.
 
 pub mod arrange;
+pub mod bars;
 pub mod clap_host;
 pub mod diag;
 pub mod hash;
@@ -23,6 +24,7 @@ pub mod sampler;
 pub mod wav;
 
 pub use arrange::{Timeline, arrange, resolve_paths};
+pub use bars::BarRange;
 pub use diag::{Diagnostic, Severity};
 pub use parser::{Parsed, Source, parse, parse_file, parse_with};
 pub use render::{Audio, render};

@@ -466,3 +466,54 @@ about five. A cached render is the same samples as an uncached one.
 Each layer's `key` and whether it was `cached` are in `manifest.json`. A cache
 file no render has used for 30 minutes is deleted by the next render. The cache
 is large: a four-minute song of ten layers holds about a gigabyte and a half.
+
+## Rendering part of a song
+
+```sh
+mat render song.song --bars 33-40                      # eight bars, in a fraction of the time
+mat render song.song --bars 9                          # one bar
+mat render song.song --bars 33-40 --loop --stems out/  # those bars as a loop, with stems
+```
+
+`--bars <from>-<to>` renders only those bars. They are counted from 1 and both
+are included; a single number is one bar. A bar outside the song, or a range
+that runs backwards, is an error that says how long the song is. It works with
+`--stems`, `--cache`, `--loop` and every output format.
+
+It is much faster than rendering the whole song, because everything outside
+those bars is thrown away before a voice is synthesised: eight bars of a
+four-minute song render in about half a second where the whole takes six. An
+editor can play the bars somebody is working on at once, and swap in the whole
+song when it lands.
+
+**What a stretch carries in.** Everything that *starts* inside it sounds as the
+song does at those bars: the same notes, the same takes, the same track and
+master settings, the same sidechain ducking, and the value a sweep that began
+earlier has reached. Two bars in front of the stretch are rendered as well and
+then dropped, so a note that begins just before it is heard ringing at the
+start.
+
+**What it does not.** Whatever was sounding when that lead-in began: a note
+that started before it, a reverb or delay tail, a tb303's filter and slide
+state, a scratch track's record of another track. An audio file is cut to the
+stretch, with the usual 5 ms fade at a cut, and the first 5 ms of the stretch
+fade in — it begins in the middle of the music, and a file whose first sample
+is far from zero clicks. A stretch is a stretch of the song, not the song
+played from bar 33.
+
+So a stretch of a song without reverb or delay is the whole render's own
+samples at those bars, to the last bit. With them it is the same music at the
+same loudness in a reverb of the same size: measured on `examples/neon.song`,
+bars 33-40 track the whole render to within 0.2 dB every half second, and what
+is not carried in is 12 dB under the music.
+
+`--loop` with `--bars` loops over exactly the bars asked for, rather than over
+the song's length rounded up to a bar.
+
+In `manifest.json`, `bars` is `[from, to]` as the whole song numbers them —
+`[1, 121]` for a whole render — and `partial` says which of the two this is.
+Everything else in the manifest, and every stem, is counted from the first of
+those bars: `seconds` is the stretch, and `sections` are the ones it is in,
+clipped to it and keeping the song's own bar numbers. The cache keys a layer by
+its bars as well, so a stretch and the whole song are never the same layer in
+it, whichever is rendered first.

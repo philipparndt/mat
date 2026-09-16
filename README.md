@@ -23,6 +23,7 @@ cargo build --release
 ./target/release/mat render examples/drunken-sailor.song   # -> examples/drunken-sailor.wav
 ./target/release/mat render examples/drunken-sailor.song -o sailor.flac   # lossless, about 2/3 of the WAV
 ./target/release/mat render examples/drunken-sailor.song -o sailor.m4a    # AAC, 256 kbit/s (--bitrate)
+./target/release/mat render examples/drunken-sailor.song --bars 9-16      # only those bars, in a fraction of the time
 ./target/release/mat play   examples/drunken-sailor.song   # render and play
 ./target/release/mat export examples/drunken-sailor.song   # arranged timeline as JSON
 ./target/release/mat inspect "logic:01 Acoustic Pianos/Steinway Grand Piano 2.exs"

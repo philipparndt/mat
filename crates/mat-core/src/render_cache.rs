@@ -16,6 +16,8 @@
 //! position in the song, not the other layers, and not the song's length:
 //! a layer is computed to its own end (see `render::render_with`). A layer with
 //! an Audio Unit track is not cached; its audio comes from another process.
+//! When the render is of part of a song (`mat render --bars 33-40`), the bars
+//! are keyed too, so a stretch and the whole song are never the same layer.
 //!
 //! **Why notes carry seeds.** A key is only worth anything if an edit elsewhere
 //! leaves it alone, and a note's randomness used to come from its track's
@@ -153,6 +155,15 @@ pub fn layer_key(timeline: &Timeline, members: &[usize], sample_rate: u32) -> Op
         return None;
     }
     let mut hash = Fnv::default().str(FORMAT).str(env!("CARGO_PKG_VERSION")).u64(sample_rate as u64);
+    // Which bars, when this is only part of a song. The notes in the layer say
+    // it too — they are the ones inside the stretch, moved to it — but a layer
+    // with nothing in those bars has the same empty note list whatever was
+    // asked for, and a cached layer is trimmed by the range it was rendered
+    // for, not by the one in the file. So the range is keyed, and a partial
+    // layer is never read back for a whole render or for other bars.
+    if let Some(window) = &timeline.window {
+        hash = hash.str("bars").u64(window.bars[0] as u64).u64(window.bars[1] as u64).u64(window.lead_in_bars as u64);
+    }
     let mut files: Vec<String> = Vec::new();
 
     let add_track = |hash: Fnv, ti: usize, files: &mut Vec<String>| -> Option<Fnv> {
@@ -335,6 +346,35 @@ master
         assert_eq!(before["two"], sound["two"]);
         let moved = keys_of(&format!("# the parts\n\n{}pattern p # moved\n  C4:q D4 E4 F4 |\n", parts.replace("pattern p\n  C4:q D4 E4 F4 |\n", "")));
         assert_eq!(before, moved, "comments and moved lines are not heard");
+    }
+
+    /// A stretch of a song and the whole song share a cache directory and must
+    /// never share a layer in it: whichever is rendered first, the other is
+    /// the samples it would have been on its own.
+    #[test]
+    fn a_stretch_and_the_whole_song_are_different_layers_in_the_cache() {
+        let long = SONG.replace("play p x2", "play p x8").replace("play q x2", "play q x8").replace("play beat x2", "play beat x8");
+        let whole = timeline(&long);
+        let part = crate::bars::cut(&whole, crate::bars::BarRange { from: 5, to: 8 }, 48_000).expect("in range");
+        let alone = |t: &Timeline| render_with(t, 48_000, HashMap::new(), &RenderOptions { split: true, cache: None }).mix;
+        let (whole_alone, part_alone) = (alone(&whole), alone(&part));
+        assert_ne!(whole_alone.left.len(), part_alone.left.len(), "the two renders are different lengths");
+
+        for order in [[&part, &whole], [&whole, &part]] {
+            let dir = scratch();
+            let options = RenderOptions { split: true, cache: Some(dir.clone()) };
+            let first = render_with(order[0], 48_000, HashMap::new(), &options);
+            let second = render_with(order[1], 48_000, HashMap::new(), &options);
+            for (rendered, on_its_own) in [(&first, order[0]), (&second, order[1])] {
+                let expected = if std::ptr::eq(on_its_own, &whole) { &whole_alone } else { &part_alone };
+                assert_eq!(&rendered.mix.left, &expected.left, "a render beside the other one in the cache is its own samples");
+                assert_eq!(&rendered.mix.right, &expected.right);
+            }
+            // And each is still cached for itself.
+            let again = render_with(order[0], 48_000, HashMap::new(), &options);
+            assert!(again.layers.iter().all(|l| l.cached), "the first render's layers are still there");
+            let _ = fs::remove_dir_all(&dir);
+        }
     }
 
     /// A render that reads its layers back is the same numbers as one that

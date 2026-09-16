@@ -120,6 +120,10 @@ pub fn render_layers(timeline: &Timeline, sample_rate: u32, stems: HashMap<usize
 ///
 /// **Layers that are not cached are rendered side by side**, a few at a time:
 /// each holds a handful of buffers the length of the song.
+///
+/// **A timeline that is only part of a song** — see [`crate::bars`] — renders
+/// the same way and then has its lead-in dropped from the front of the mix and
+/// of every layer, so what comes back begins at the first bar asked for.
 pub fn render_with(timeline: &Timeline, sample_rate: u32, mut stems: HashMap<usize, StereoClip>, options: &RenderOptions) -> Rendering {
     let sr = sample_rate as f32;
     let mut skipped = Vec::new();
@@ -411,7 +415,7 @@ pub fn render_with(timeline: &Timeline, sample_rate: u32, mut stems: HashMap<usi
 
     // The layers end where the mix ends, with the same fade, so they are the
     // mix's length and still sum to it.
-    let layers = if options.split {
+    let mut layers = if options.split {
         groups
             .into_iter()
             .zip(buffers)
@@ -428,7 +432,36 @@ pub fn render_with(timeline: &Timeline, sample_rate: u32, mut stems: HashMap<usi
         Vec::new()
     };
 
+    // Only part of the song: the lead-in was rendered so that notes which
+    // begin just before the stretch are heard ringing at its start, and now it
+    // goes, off the mix and off every layer alike, so that they still sum.
+    if let Some(window) = &timeline.window {
+        let frames = window.lead_in_frames(sample_rate);
+        drop_lead_in(&mut left, &mut right, frames, sr);
+        for layer in &mut layers {
+            drop_lead_in(&mut layer.audio.left, &mut layer.audio.right, frames, sr);
+        }
+    }
+
     Rendering { mix: Audio { sample_rate, left, right }, layers, layers_peak_db, report: RenderReport { skipped_tracks: skipped, warnings } }
+}
+
+/// Drops the lead-in from the front of a render of part of a song, and fades
+/// the cut over 5 ms: what is left begins in the middle of the music, and a
+/// file whose first sample is far from zero clicks when it is played.
+fn drop_lead_in(left: &mut Vec<f32>, right: &mut Vec<f32>, frames: usize, sr: f32) {
+    if frames == 0 {
+        return;
+    }
+    let frames = frames.min(left.len());
+    left.drain(..frames);
+    right.drain(..frames);
+    let fade = ((0.005 * sr) as usize).min(left.len());
+    for k in 0..fade {
+        let g = k as f32 / fade as f32;
+        left[k] *= g;
+        right[k] *= g;
+    }
 }
 
 /// How long the send effects ring after the last sound.

@@ -40,8 +40,24 @@ enum Command {
         /// Bit rate of .m4a files in kbit/s (constrained VBR).
         #[arg(long, default_value_t = 256)]
         bitrate: u32,
+        /// Render only these bars of the song, counted from 1 and both
+        /// included: --bars 33-40, or one bar: --bars 9. Much faster than the
+        /// whole song, for an editor that plays the bars somebody is working
+        /// on while the song renders behind it.
+        ///
+        /// The stretch sounds as the song does at those bars for everything
+        /// that starts inside it: the same notes, the same takes, the same
+        /// settings, the same ducking, and the value a sweep reached earlier.
+        /// Two bars in front of it are rendered and dropped, so a note that
+        /// begins just before it is heard ringing at the start. Not carried
+        /// in: anything sounding when that lead-in began — a longer note, a
+        /// reverb or delay tail, a tb303's filter, a scratch track's record —
+        /// and an audio file is cut to the stretch. The first 5 ms fade in.
+        #[arg(long, value_name = "FROM-TO", value_parser = mat_core::BarRange::parse)]
+        bars: Option<mat_core::BarRange>,
         /// Make a seamless loop: the length is rounded up to whole bars and
-        /// the tail (reverb, releases) is folded back into the start.
+        /// the tail (reverb, releases) is folded back into the start. With
+        /// --bars, the loop is exactly the bars asked for.
         #[arg(long)]
         r#loop: bool,
         /// Also write one file per layer, in the output's format, into this
@@ -136,7 +152,7 @@ fn run(cli: Cli) -> anyhow::Result<ExitCode> {
             print_summary(&timeline);
             println!("ok");
         }
-        Command::Render { song, output, sample_rate, bits, bitrate, r#loop, stems, cache } => {
+        Command::Render { song, output, sample_rate, bits, bitrate, bars, r#loop, stems, cache } => {
             let output = output.unwrap_or_else(|| song.with_extension("wav"));
             let depth = match bits {
                 Bits::B16 => BitDepth::Int16,
@@ -146,8 +162,25 @@ fn run(cli: Cli) -> anyhow::Result<ExitCode> {
             // Checked before rendering, which can take minutes.
             let encoding = Encoding { format: Format::from_path(&output).map_err(anyhow::Error::msg)?, depth, bitrate };
             encoding.check().map_err(anyhow::Error::msg)?;
-            let Some((timeline, sources)) = load(&song)? else { return Ok(ExitCode::FAILURE) };
-            let loop_seconds = r#loop.then(|| (timeline.end / timeline.bar_seconds - 1e-6).ceil() * timeline.bar_seconds);
+            let Some((mut timeline, sources)) = load(&song)? else { return Ok(ExitCode::FAILURE) };
+            // Only part of the song: everything outside those bars goes before
+            // a voice is synthesised, so the render costs what they cost.
+            if let Some(range) = bars {
+                let of = mat_core::bars::song_bars(&timeline);
+                timeline = mat_core::bars::cut(&timeline, range, sample_rate).map_err(anyhow::Error::msg)?;
+                let window = timeline.window.as_ref().expect("a cut timeline says which bars it is");
+                println!("bars {range} of {of}, {} ({} bar{} of lead-in)", format_time(window.seconds), window.lead_in_bars, if window.lead_in_bars == 1 { "" } else { "s" });
+            }
+            // A stretch loops over exactly the bars asked for; a whole song
+            // over its length rounded up to a bar.
+            let loop_seconds = r#loop.then(|| match &timeline.window {
+                Some(window) => window.seconds,
+                None => (timeline.end / timeline.bar_seconds - 1e-6).ceil() * timeline.bar_seconds,
+            });
+            // The render drops the lead-in, so everything it is measured
+            // against is counted from the first bar asked for.
+            let lead_in = timeline.window.as_ref().map_or(0.0, |w| w.lead_in_seconds);
+            let played = (timeline.end - lead_in).max(0.0);
             // One render, split into layers when stems are wanted: a stem is
             // the song's own take of its tracks, not a solo render of them.
             let rendering = render_song(&timeline, sample_rate, stems.is_some(), cache.clone());
@@ -226,16 +259,25 @@ fn run(cli: Cli) -> anyhow::Result<ExitCode> {
                 if cache.is_some() {
                     println!("layers: {from_cache} of {} from the cache, {linked} stems linked", written.len());
                 }
+                // Which bars these stems are, as the whole song numbers them,
+                // and whether they are all of it: a reader must be able to
+                // tell a stretch from the song without knowing what was asked
+                // for. Everything else here — seconds, the sections, each
+                // stem — is counted from the first of those bars.
+                let window = timeline.window.as_ref();
+                let rendered_bars = window.map_or([1, mat_core::bars::song_bars(&timeline)], |w| w.bars);
                 let manifest = serde_json::json!({
                     "title": timeline.title,
                     "tempo": timeline.tempo,
                     "meter": [timeline.meter.0, timeline.meter.1],
                     "sample_rate": sample_rate,
                     "bar_seconds": timeline.bar_seconds,
-                    "bars": (loop_seconds.unwrap_or(timeline.end) / timeline.bar_seconds).ceil(),
-                    "seconds": loop_seconds.unwrap_or(timeline.end),
+                    "bars": rendered_bars,
+                    "partial": window.is_some(),
+                    "lead_in_bars": window.map_or(0, |w| w.lead_in_bars),
+                    "seconds": loop_seconds.unwrap_or(played),
                     "loop": loop_seconds.is_some(),
-                    "sections": timeline.sections.iter().map(|s| serde_json::json!({ "name": s.name, "bars": [s.from_bar, s.to_bar], "start": s.start, "end": s.end })).collect::<Vec<_>>(),
+                    "sections": timeline.sections.iter().map(|s| serde_json::json!({ "name": s.name, "bars": [s.from_bar, s.to_bar], "start": s.start - lead_in, "end": s.end - lead_in })).collect::<Vec<_>>(),
                     "layers": written,
                     // What the stems add up to. Every stage a stem has been
                     // through is linear, so their sum is the mix as it was

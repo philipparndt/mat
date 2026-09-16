@@ -107,6 +107,11 @@ pub struct Timeline {
     pub sections: Vec<TimedSection>,
     /// Length of one bar in seconds.
     pub bar_seconds: f64,
+    /// Set when this is only part of a song — `mat render --bars 33-40`. It
+    /// says which bars, and how much of the front of the render is the lead-in
+    /// that is dropped again. See [`crate::bars`].
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub window: Option<crate::bars::Window>,
 }
 
 pub fn arrange(song: &Song) -> Result<Timeline, Vec<Diagnostic>> {
@@ -352,6 +357,7 @@ pub fn arrange(song: &Song) -> Result<Timeline, Vec<Diagnostic>> {
             .map(|s| TimedSection { name: s.name.clone(), from_bar: s.from_bar, to_bar: s.to_bar, start: song.seconds((s.from_bar - 1.0) * bar), end: song.seconds(s.to_bar * bar) })
             .collect(),
         bar_seconds: song.seconds(bar),
+        window: None,
     })
 }
 
