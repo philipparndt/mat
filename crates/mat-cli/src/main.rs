@@ -565,7 +565,7 @@ fn stream_song(
     let options = mat_core::render::RenderOptions { split, cache, stems_through_master: through_master };
     let mut stream = mat_core::stream::Stream::start(timeline, sample_rate, stems, &options);
     let mut writer = mat_core::wav::WavStream::create(output, sample_rate, depth).with_context(|| format!("writing {}", output.display()))?;
-    let status = Status { path: output.with_extension("stream.json"), file: output.file_name().unwrap_or(output.as_os_str()).to_string_lossy().into_owned() };
+    let status = Status::new(output, timeline);
     // An empty file, said to be empty, before the first stretch: an editor
     // that is already watching learns the render has begun.
     status.write(&writer, timeline, sample_rate, false)?;
@@ -615,9 +615,35 @@ fn stream_song(
 struct Status {
     path: PathBuf,
     file: String,
+    /// How long the whole render will be, in bars and in seconds. It is known
+    /// before a sample of it exists, so it is there in the first status write
+    /// and never changes again: an editor can lay out the whole timeline at
+    /// once instead of rescaling it as the file grows. For `--bars from-to`
+    /// it is the window, which is what the file will hold.
+    bars_total: u64,
+    seconds_total: f64,
 }
 
 impl Status {
+    fn new(output: &Path, timeline: &Timeline) -> Status {
+        // The song's own length: its bars at its tempo. A whole song is its
+        // last sound rounded up to a bar, which is how `mat render --bars`
+        // numbers the song's bars and how `bars_written` counts them, so the
+        // written and the total are the same measure. It is the music's
+        // length and not the file's: the audio runs a little past the last
+        // bar, where a reverb or delay tail is still ringing.
+        let bars_total = match &timeline.window {
+            Some(window) => u64::from(window.bars[1] - window.bars[0] + 1),
+            None => u64::from(mat_core::bars::song_bars(timeline)),
+        };
+        Status {
+            path: output.with_extension("stream.json"),
+            file: output.file_name().unwrap_or(output.as_os_str()).to_string_lossy().into_owned(),
+            bars_total,
+            seconds_total: bars_total as f64 * timeline.bar_seconds,
+        }
+    }
+
     fn write(&self, writer: &mat_core::wav::WavStream, timeline: &Timeline, sample_rate: u32, finished: bool) -> anyhow::Result<()> {
         let seconds = writer.frames() as f64 / sample_rate as f64;
         let status = serde_json::json!({
@@ -631,6 +657,9 @@ impl Status {
             "frames_written": writer.frames(),
             "seconds_written": seconds,
             "bars_written": (seconds / timeline.bar_seconds).floor() as u64,
+            // The whole render's length, right from the first write.
+            "seconds_total": self.seconds_total,
+            "bars_total": self.bars_total,
             "bar_seconds": timeline.bar_seconds,
             "tempo": timeline.tempo,
             "finished": finished,

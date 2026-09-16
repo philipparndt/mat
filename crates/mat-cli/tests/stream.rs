@@ -106,6 +106,12 @@ fn the_json_never_claims_more_of_the_wav_than_is_there() {
             let finished = json["finished"].as_bool().expect("finished");
             assert_eq!(json["channels"].as_u64(), Some(2));
             assert_eq!(json["bytes_per_frame"].as_u64(), Some(6));
+            // The song is 96 bars whatever has been written of it, and says so
+            // in every status — the empty first one included, which is the
+            // whole point: a timeline is laid out once, not guessed.
+            let bar = json["bar_seconds"].as_f64().expect("bar_seconds");
+            assert_eq!(json["bars_total"].as_u64(), Some(96), "the whole song's bars");
+            assert!((json["seconds_total"].as_f64().expect("seconds_total") - 96.0 * bar).abs() < 1e-9);
             if !finished && claimed > 0 {
                 let (there, _) = readable(&wav).expect("a readable wav");
                 let over = std::fs::read_to_string(&status)
@@ -155,6 +161,35 @@ fn the_json_never_claims_more_of_the_wav_than_is_there() {
         .expect("mat runs");
     assert!(run.success());
     assert!(std::fs::read(&wav).expect("streamed") == std::fs::read(&ordinary).expect("ordinary"), "a streamed render is not the ordinary one");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// A window of a song says the window's length, not the song's: that is what
+/// the file will hold, and an editor laying out four bars should be told four.
+#[test]
+fn a_window_says_how_long_the_window_is() {
+    let dir = scratch("window");
+    let song = dir.join("window.song");
+    std::fs::File::create(&song).expect("a song").write_all(SONG.as_bytes()).expect("written");
+    let wav = dir.join("window.wav");
+    let run = Command::new(env!("CARGO_BIN_EXE_mat"))
+        .args(["render".as_ref(), song.as_os_str(), "-o".as_ref(), wav.as_os_str(), "--stream".as_ref(), "--bars".as_ref(), "5-8".as_ref()])
+        .stdout(std::process::Stdio::null())
+        .status()
+        .expect("mat runs");
+    assert!(run.success());
+    let text = std::fs::read_to_string(dir.join("window.stream.json")).expect("the json");
+    let json: serde_json::Value = serde_json::from_str(&text).expect("json");
+    let bar = json["bar_seconds"].as_f64().expect("bar_seconds");
+    assert_eq!(json["bars_total"].as_u64(), Some(4), "four bars were asked for");
+    let total = json["seconds_total"].as_f64().expect("seconds_total");
+    assert!((total - 4.0 * bar).abs() < 1e-9, "{total} is not four bars");
+    // The file holds those four bars and the tail still ringing after them —
+    // never the whole song, which is what it would hold if the window were
+    // being reported as the song's own length.
+    let written = json["seconds_written"].as_f64().expect("seconds_written");
+    assert!(written >= total, "{written} written against {total} said");
+    assert!(written < total + 8.0, "{written} written is more than four bars and a tail");
     let _ = std::fs::remove_dir_all(&dir);
 }
 

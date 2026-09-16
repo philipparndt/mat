@@ -511,6 +511,7 @@ instead of six seconds later. Beside the output it keeps
   "data_offset": 68, "bytes_per_frame": 6,
   "frames_written": 786432, "seconds_written": 16.384,
   "bars_written": 8, "bar_seconds": 1.875, "tempo": 128,
+  "seconds_total": 240.0, "bars_total": 128,
   "finished": false
 }
 ```
@@ -519,6 +520,20 @@ Poll that file. It is written whole, under a temporary name and renamed, after
 the samples it counts, so it never claims more of the WAV than is there; the
 WAV's own header says the same, so a player that only reads the WAV is right
 too. It ends `"finished": true`.
+
+**How long the whole thing will be.** `seconds_total` and `bars_total` say so in
+the very first write, before a sample has been rendered — so a timeline can be
+laid out once, at its real length, instead of being guessed from what has
+arrived and rescaled as more does. They are the song's own length: its last
+sound rounded up to a whole bar, which is the measure `bars_written` counts in.
+With `--bars from-to` they are that window, which is what the file will hold.
+
+They are the *music's* length, not the file's: a reverb or delay tail goes on
+ringing past the last bar, so the finished `seconds_written` is a little more
+than `seconds_total` (neon: 228.4 s written against 226.9 s of song), and more
+than a little when a short window is followed by a long tail (four bars of neon:
+11.8 s written against 7.6 s of window). A timeline is the song's length; the
+audio after it is the end of the song still sounding.
 
 **It is one render, not two.** Everything that carries from one sample to the
 next — a filter's state, the delay line, the reverb tank, a compressor's
