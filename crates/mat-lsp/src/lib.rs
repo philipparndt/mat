@@ -490,14 +490,27 @@ fn token_at(analysis: &Analysis, position: Position) -> Option<(usize, &mat_core
     line.tokens.iter().enumerate().find(|(_, t)| t.span.col <= at && at <= t.span.col + t.span.len)
 }
 
-/// What kind of thing a token refers to, when it is a reference.
+/// What kind of thing the word under the cursor refers to, when it is a
+/// reference: that word and nothing beside it. What a hover explains.
 fn referent(analysis: &Analysis, position: Position) -> Option<(&'static str, String)> {
     let (at, _) = token_at(analysis, position)?;
+    referent_at(analysis, position, at)
+}
+
+/// What the cursor's line refers to, counting the line's keyword as the name
+/// beside it: "play" is as much a part of `play chords` as the pattern's name
+/// is, and a jump from the keyword has nowhere else to go. A hover stays on
+/// the word it points at, which has the keyword's own documentation to show.
+/// Asked 2026-09-16, of a click that did nothing.
+fn followed_referent(analysis: &Analysis, position: Position) -> Option<(&'static str, String)> {
+    let (at, _) = token_at(analysis, position)?;
     let line = analysis.lines().get(position.line as usize)?;
-    // The keyword counts as the name beside it: somebody following a reference
-    // clicks the line, and "play" is as much a part of `play chords` as the
-    // pattern's name is. Asked 2026-09-16, of a click that did nothing.
-    let index = if at == 0 && line.tokens.len() >= 2 { 1 } else { at };
+    referent_at(analysis, position, if at == 0 && line.tokens.len() >= 2 { 1 } else { at })
+}
+
+/// What kind of thing the token at `index` on the cursor's line refers to.
+fn referent_at(analysis: &Analysis, position: Position, index: usize) -> Option<(&'static str, String)> {
+    let line = analysis.lines().get(position.line as usize)?;
     let token = line.tokens.get(index)?;
     let first = line.tokens.first()?.text.as_str();
     let block = block_at(analysis.lines(), position.line as usize);
@@ -533,7 +546,7 @@ pub fn definition(analysis: &Analysis, position: Position) -> Option<(usize, Ran
     if let Some(file) = included_at(analysis, position) {
         return Some((file, Range::default()));
     }
-    let (kind, name) = referent(analysis, position)?;
+    let (kind, name) = followed_referent(analysis, position)?;
     definitions(analysis)
         .into_iter()
         .find(|(k, n, _, _)| *k == kind && *n == name)
@@ -1201,6 +1214,24 @@ master
         let (_, pattern) = definition(&a, Position::new(19, 3)).expect("play is a jump");
         assert_eq!(pattern.start.line, 13);
         assert!(definition(&a, Position::new(18, 2)).is_none(), "a setting is still not a reference");
+    }
+
+    #[test]
+    fn a_hover_explains_the_word_it_points_at_while_the_jump_follows_the_line() {
+        let a = analysis();
+        // `  play verse x2` is line 19: `play` at character 3, `verse` at 8.
+        // Both jump to the pattern; the hovers say two different things.
+        let (text, _) = hover(&a, Position::new(19, 3)).expect("play is documented");
+        assert!(text.starts_with("**play**"), "the keyword's own documentation: {text}");
+        let (text, _) = hover(&a, Position::new(19, 8)).expect("verse has lines");
+        assert!(text.contains("pattern verse") && text.contains("A4:q"), "the pattern it names: {text}");
+        // And the same of `  instrument lead` on line 17.
+        let (text, _) = hover(&a, Position::new(17, 4)).expect("instrument is documented");
+        assert!(text.starts_with("**instrument**"), "{text}");
+        let (text, _) = hover(&a, Position::new(17, 14)).expect("lead has lines");
+        assert!(text.contains("instrument lead synth"), "{text}");
+        assert!(definition(&a, Position::new(19, 3)).is_some(), "the jump still follows the keyword");
+        assert!(definition(&a, Position::new(17, 4)).is_some(), "the jump still follows the keyword");
     }
 
     #[test]
