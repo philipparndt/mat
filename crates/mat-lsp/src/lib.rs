@@ -492,8 +492,13 @@ fn token_at(analysis: &Analysis, position: Position) -> Option<(usize, &mat_core
 
 /// What kind of thing a token refers to, when it is a reference.
 fn referent(analysis: &Analysis, position: Position) -> Option<(&'static str, String)> {
-    let (index, token) = token_at(analysis, position)?;
+    let (at, _) = token_at(analysis, position)?;
     let line = analysis.lines().get(position.line as usize)?;
+    // The keyword counts as the name beside it: somebody following a reference
+    // clicks the line, and "play" is as much a part of `play chords` as the
+    // pattern's name is. Asked 2026-09-16, of a click that did nothing.
+    let index = if at == 0 && line.tokens.len() >= 2 { 1 } else { at };
+    let token = line.tokens.get(index)?;
     let first = line.tokens.first()?.text.as_str();
     let block = block_at(analysis.lines(), position.line as usize);
     let kind = match (block, first, index) {
@@ -509,11 +514,13 @@ fn referent(analysis: &Analysis, position: Position) -> Option<(&'static str, St
 
 /// The file of the song an `include` line under the cursor names.
 fn included_at(analysis: &Analysis, position: Position) -> Option<usize> {
-    let (index, token) = token_at(analysis, position)?;
+    let (at, _) = token_at(analysis, position)?;
     let line = analysis.lines().get(position.line as usize)?;
-    if line.indented || index != 1 || line.tokens[0].text != "include" {
+    // Either half of `include "kit.song"`: the word or the name.
+    if line.indented || at > 1 || line.tokens.len() < 2 || line.tokens[0].text != "include" {
         return None;
     }
+    let token = line.tokens.get(1)?;
     let dir = analysis.files[analysis.file].path.parent()?;
     let wanted = identity(&normalize(&dir.join(&token.text)));
     analysis.files.iter().position(|f| !f.path.as_os_str().is_empty() && identity(&f.path) == wanted)
@@ -1185,6 +1192,18 @@ master
     }
 
     #[test]
+    fn the_keyword_goes_where_the_name_beside_it_goes() {
+        let a = analysis();
+        // The caret on `instrument` of `  instrument lead`, and on `play` of
+        // `  play verse x2`: the word answers what the name answers.
+        let (file, target) = definition(&a, Position::new(17, 4)).expect("instrument is a jump");
+        assert_eq!((file, target.start), (0, Position::new(3, 11)));
+        let (_, pattern) = definition(&a, Position::new(19, 3)).expect("play is a jump");
+        assert_eq!(pattern.start.line, 13);
+        assert!(definition(&a, Position::new(18, 2)).is_none(), "a setting is still not a reference");
+    }
+
+    #[test]
     fn hover_says_what_a_keyword_means_and_shows_a_named_things_lines() {
         let a = analysis();
         let (text, _) = hover(&a, Position::new(18, 3)).expect("reverb is documented");
@@ -1410,7 +1429,9 @@ pattern verse
         assert_eq!(location.uri, kit);
         assert_eq!(location.range.start, Position::new(1, 11));
         let location: Location = serde_json::from_value(server.answer(request(1, 11)).result.unwrap()).unwrap();
-        assert_eq!((location.uri, location.range.start), (kit, Position::new(0, 0)), "an include goes to its file");
+        assert_eq!((location.uri.clone(), location.range.start), (kit.clone(), Position::new(0, 0)), "an include goes to its file");
+        let location: Location = serde_json::from_value(server.answer(request(1, 2)).result.unwrap()).unwrap();
+        assert_eq!((location.uri, location.range.start), (kit, Position::new(0, 0)), "the word include goes there too");
     }
 
     #[test]
