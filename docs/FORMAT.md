@@ -549,14 +549,13 @@ streamed render.
 **When the first sound arrives.** In well under a tenth of a second for most
 songs: `examples/neon.song`, four minutes and ten layers, is playing 0.07 s
 after it was asked for, where the whole render takes five to seven seconds.
-Three kinds of track cannot be made a bar at a time and are rendered in full
-before the first stretch, so a song with one waits for it — a tb303, whose
-filter and slide run the length of the track (`examples/dream.song` waits 0.7 s
-for its acid line); a scratch track, which cuts its record out of a file or out
-of another track, and the tracks it cuts from (`examples/undertow-b.song`:
-1.2 s); and a CLAP plugin, which is a plugin (`examples/harbour.song`: 11 s of
-its 23). Everything else — synths, drum kits, samplers, audio files, Audio Unit
-tracks — is made when its bar comes.
+Two kinds of track cannot be made a bar at a time and are rendered in full
+before the first stretch, so a song with one waits for it — a scratch track,
+which cuts its record out of a file or out of another track, and the tracks it
+cuts from (`examples/undertow-b.song`: 1.2 s); and a CLAP plugin, which is a
+plugin (`examples/harbour.song`: 11 s of its 23). Everything else — synths,
+drum kits, samplers, audio files, tb303s, Audio Unit tracks — is made when its
+bar comes.
 
 **What it costs.** Nothing much. It is the same work, spread a stretch at a
 time rather than a layer at a time, and a stretch has every layer in it to

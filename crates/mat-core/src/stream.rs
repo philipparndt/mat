@@ -28,11 +28,14 @@
 //!
 //! **What has to be rendered first.** A voice that is a function of its note is
 //! made when its bar is reached: a synth note, a drum hit, a sampler's zones, a
-//! region of an audio file. Three are not, and are rendered in full before the
-//! first stretch: a tb303, whose filter and slide run through the whole track;
-//! a scratch track, which cuts its record out of a file or another track; and a
-//! CLAP plugin, which is a plugin. So does an Audio Unit track, whose audio
-//! another process has already rendered.
+//! region of an audio file. A tb303 is not a function of its note — one voice
+//! runs the length of the track — but it is still made a stretch at a time,
+//! because everything it carries is in [`crate::instruments::tb303::Player`]
+//! and carries across a boundary like the master's own effects do. Two are
+//! rendered in full before the first stretch: a scratch track, which cuts its
+//! record out of a file or another track; and a CLAP plugin, which is a
+//! plugin. So is an Audio Unit track, whose audio another process has already
+//! rendered.
 
 use std::collections::HashMap;
 
@@ -138,6 +141,9 @@ enum Voices {
     Sampler(Box<Prepared>),
     /// A region of a file at a time, in the order the clips are played.
     Audio(Box<AudioFile>),
+    /// One voice running the length of the track, a stretch of samples at a
+    /// time, carrying its filter, slide and envelopes across the boundary.
+    Tb303(Box<crate::instruments::tb303::Player>),
     /// Rendered before the first stretch; nothing left to make.
     Ready,
 }
@@ -390,7 +396,7 @@ impl<'a> Stream<'a> {
                 continue;
             }
             match &track.instrument {
-                InstrumentKind::Tb303(_) | InstrumentKind::Clap(_) => eager[ti] = true,
+                InstrumentKind::Clap(_) => eager[ti] = true,
                 InstrumentKind::Scratch(def) => {
                     eager[ti] = true;
                     if let Some(source) = &def.source_track {
@@ -554,6 +560,10 @@ impl<'a> Stream<'a> {
                             state.warnings.push(format!("track '{}': {e}", track.name));
                             Voices::Ready
                         }
+                    },
+                    InstrumentKind::Tb303(def) => match crate::instruments::tb303::Player::new(def, &track.notes, &track.sweeps, sr) {
+                        Some(player) => Voices::Tb303(Box::new(player)),
+                        None => Voices::Ready,
                     },
                     _ => Voices::Ready,
                 };
@@ -1035,7 +1045,11 @@ impl TrackState {
         // come. Half a block of slack costs a note or two and no correctness.
         let horizon = to as f64 + 64.0;
         let mut clips: Vec<StereoClip> = Vec::new();
-        match &self.voices {
+        // A voice that runs the length of the track knows where its own audio
+        // ends only when it has run out, because the silent tail is trimmed
+        // off it — and that end is less than what it gave out.
+        let mut trimmed_to = None;
+        match &mut self.voices {
             Voices::Synth(def) => {
                 let mut until = self.next;
                 while until < track.notes.len() && track.notes[until].start * sr as f64 <= horizon {
@@ -1110,10 +1124,22 @@ impl TrackState {
                 self.next = until;
                 self.all_rendered = until == track.clips.len();
             }
+            Voices::Tb303(player) => {
+                clips = vec![player.render_to(to)];
+                self.all_rendered = player.finished();
+                if self.all_rendered {
+                    // What the whole-track render keeps: the silent tail is
+                    // not part of the track, so the inserts are not fed it.
+                    trimmed_to = Some(player.start_sample() + player.kept());
+                }
+            }
             Voices::Ready => {}
         }
         for clip in &clips {
             self.add_clip(clip);
+        }
+        if let Some(content) = trimmed_to {
+            self.content = content;
         }
 
         let Some(start) = self.start else {
@@ -1284,6 +1310,45 @@ master
   limiter off
 ";
 
+    /// A tb303: one voice running the length of the track, with slides,
+    /// accents and knob sweeps under it, so every stretch boundary falls in
+    /// the middle of a filter's decay and an accent capacitor's charge.
+    const ACID: &str = "tempo 128
+meter 4/4
+instrument acid tb303
+  wave saw
+  cutoff 0.25
+  resonance 0.8
+  envmod 0.55
+  decay 0.35
+  accent 0.8
+  drive 0.35
+instrument kit drums
+pattern line
+  A1:s A1 A2! A1 r C2~ D2 A1   A1 G2! A1~ A2 r A1 E2~ G2 |
+  A1:s A1 A2! A1 r C2~ D2 A1   A1 C3!~ A2 G2 E2! D2 C2~ A1 |
+pattern beat grid=1/16
+  kick    X...X...X...X...
+  hat     x.x.x.x.x.x.x.x.
+track acid
+  instrument acid
+  gain -4
+  reverb 0.08
+  delay 0.18
+  sidechain drums depth=0.35 release=0.12
+  sweep cutoff from=0.1 to=0.35 bars=1-8
+  sweep resonance from=0.8 to=0.92 bars=5-12
+  play line x8
+track drums
+  instrument kit
+  layer drums
+  play beat x16
+master
+  reverb size=0.5 decay=0.5 damping=0.5
+  delay time=3/16 feedback=0.35 tone=2.5k
+  limiter ceiling=-1
+";
+
     fn timeline(text: &str) -> Timeline {
         crate::compile(text).expect("the test song compiles").0
     }
@@ -1312,7 +1377,7 @@ master
     /// stretch boundary is the ordinary render, to the last bit.
     #[test]
     fn a_streamed_render_is_the_ordinary_renders_own_samples() {
-        for song in [WORKS, DRY] {
+        for song in [WORKS, DRY, ACID] {
             let timeline = timeline(song);
             let whole = crate::render::render_with(&timeline, RATE, HashMap::new(), &RenderOptions::default());
             let (given, streamed) = streamed(&timeline, &RenderOptions::default());
