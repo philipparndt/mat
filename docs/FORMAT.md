@@ -547,31 +547,36 @@ same file up to 31.476 s and then differ over four fifths of their samples; a
 streamed one is the same file up to 31.476 s and then differs by as much. Over
 a window where the plugin does reproduce — `--bars 1-12` of harbour, `--bars
 1-6` of the surge song — a streamed render is a plain one byte for byte.) So
-this is not `--bars`, which renders a window of the
-song from silence and cannot carry a tail into it; nothing is missing from a
-streamed render.
+this is not `--bars`, which renders a window of the song from silence and
+cannot carry a tail into it; nothing is missing from a streamed render.
 
 **When the first sound arrives.** In a fraction of a second for every example
-here, whatever it is made of: `examples/neon.song`, four minutes and ten
-layers, is playing 0.08 s after it was asked for and `examples/harbour.song`,
-whose bass and arpeggio are Surge XT, 0.64 s, where the whole renders take
-seconds and half a minute.
+here, whatever it is made of. On a machine at load 5-10: `examples/neon.song`,
+four minutes and ten layers, plays 0.03 s after it was asked for where the
+whole render takes 3.3 s; `examples/acid.song`, whose bass line is a tb303,
+0.01 s of 0.6 s; `examples/harbour.song`, whose bass and arpeggio are Surge XT,
+0.20 s of 19 s.
+
 Every kind of track is made when its bar comes — synths, drum kits, samplers,
 audio files, tb303s, scratch moves, CLAP plugins. Two things are made before
 the first stretch, and a song that has them waits for them. A scratch track's
 *record* — the bar or two under the needle — is read first: out of a file,
 which costs nothing, or cut out of another track, which is then rendered ahead
 of the song, though only as far as the record reaches
-(`examples/undertow-b.song`, whose record is two bars of its drum track, is
-playing 0.25 s after it was asked for). And an Audio Unit track's audio is
-rendered whole, by the `mat-au` host in another process, before a streamed
-render begins at all.
+(`examples/undertow-b.song`, whose record is two bars of its drum track, plays
+0.15 s after it was asked for). And an Audio Unit track's audio is rendered
+whole, by the `mat-au` host in another process, before a streamed render begins
+at all: `mat` is handed finished stems, not a plugin it can play.
 
 **What it costs.** Nothing much. It is the same work, spread a stretch at a
 time rather than a layer at a time, and a stretch has every layer in it to
 spread across where the ordinary render runs three side by side. Three runs
 each on a machine at load 35-40: neon 7.0 s ordinary against 5.2 s streamed,
-`undertow.song` 13.6 s against 12.5 s, `dream.song` 12.5 s against 12.3 s.
+`undertow.song` 13.6 s against 12.5 s, `dream.song` 12.5 s against 12.3 s. And
+nothing was given up to make the first sound arrive sooner: the whole streamed
+render takes the same time as it did when tb303s, scratch tracks and plugins
+were all made before the first stretch — neon 3.38 s then against 3.34 s now,
+dream 6.80 s against 6.31 s, harbour 19.0 s against 19.7 s.
 
 `--stems` and `--cache` work as they always do. The stems and `manifest.json`
 are written at the end, from the same layers, and are the same files an
