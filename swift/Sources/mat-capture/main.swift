@@ -28,6 +28,7 @@ let usage = """
     options:
       --mute            silence the tapped audio on the speakers while capturing
       --seconds <n>     stop after n seconds (otherwise Ctrl-C)
+      --help, -h        print this
     """
 
 struct CaptureOptions {
@@ -194,7 +195,23 @@ func capture(_ options: CaptureOptions, makeSink: (Int, Int) throws -> SampleSin
 
 // MARK: - Entry point
 
+/// The options of `record` or `stream`; what is wrong with them is printed
+/// with the usage, because that is what says how to write them.
+func captureOptions(_ arguments: [String], wantsOutput: Bool) -> CaptureOptions {
+    do {
+        return try CaptureOptions(arguments, wantsOutput: wantsOutput)
+    } catch {
+        stderr("error: \(error)\n")
+        stderr(usage)
+        exit(2)
+    }
+}
+
 let args = Array(CommandLine.arguments.dropFirst())
+if args.contains(where: { ["--help", "-h", "help"].contains($0) }) {
+    print(usage)
+    exit(0)
+}
 if ["record", "stream", "permission"].contains(args.first), let status = relaunchAsResponsibleProcess() {
     exit(status)
 }
@@ -204,10 +221,10 @@ do {
     case "list":
         try list()
     case "record":
-        let options = try CaptureOptions(Array(args.dropFirst()), wantsOutput: true)
+        let options = captureOptions(Array(args.dropFirst()), wantsOutput: true)
         try capture(options) { rate, channels in try WavSink(path: options.output!, sampleRate: rate, channels: channels) }
     case "stream":
-        let options = try CaptureOptions(Array(args.dropFirst()), wantsOutput: false)
+        let options = captureOptions(Array(args.dropFirst()), wantsOutput: false)
         try capture(options) { _, _ in StdoutSink() }
     case "permission":
         switch AudioCapturePermission.request() {

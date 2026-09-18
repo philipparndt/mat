@@ -78,7 +78,13 @@ impl Compressor {
             release: (-1.0 / (settings.release.max(0.005) * sr)).exp(),
             ratio: settings.ratio.max(1.0),
             makeup: 10f32.powf(settings.makeup_db / 20.0),
-            env_db: -120.0,
+            // The gain the compressor is currently applying, in dB, not the
+            // level it has heard: silence means nothing to turn down, so it
+            // starts at unity. Starting it at -120 dB made every compressor
+            // open from silence over its release time — a fade-in on the first
+            // note of any track with `comp`, and on the first second of any
+            // song whose master has one. `KeyedCompressor` starts at 0 too.
+            env_db: 0.0,
             last_gain: 1.0,
         }
     }

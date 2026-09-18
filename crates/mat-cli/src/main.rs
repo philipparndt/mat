@@ -506,10 +506,6 @@ fn print_summary(t: &Timeline) {
     }
 }
 
-fn render(timeline: &Timeline, sample_rate: u32) -> mat_core::Audio {
-    render_song(timeline, sample_rate, false, false, None).mix
-}
-
 /// Renders the song, with its layers kept apart when `split`, and prints
 /// the render's summary line.
 fn render_song(timeline: &Timeline, sample_rate: u32, split: bool, through_master: bool, cache: Option<PathBuf>) -> mat_core::render::Rendering {
@@ -729,6 +725,18 @@ fn find_mat_au() -> Option<PathBuf> {
     candidates.into_iter().find(|p| p.is_file())
 }
 
+/// What has been rendered so far, and how much of it there is. The render
+/// thread appends stretches; the audio callback reads what is already there.
+/// Both vectors are given the whole song's length up front, so appending never
+/// reallocates under the lock and the callback is never held up by one.
+#[derive(Default)]
+struct Playing {
+    left: Vec<f32>,
+    right: Vec<f32>,
+    /// The render has ended; `left` and `right` are now the whole song.
+    done: bool,
+}
+
 fn play(timeline: &Timeline) -> anyhow::Result<()> {
     let host = cpal::default_host();
     let device = host.default_output_device().context("no audio output device")?;
@@ -738,33 +746,121 @@ fn play(timeline: &Timeline) -> anyhow::Result<()> {
     }
     let config: cpal::StreamConfig = config.into();
     let channels = config.channels as usize;
-    let audio = Arc::new(render(timeline, config.sample_rate));
+    let sample_rate = config.sample_rate;
 
+    // The song is rendered a stretch at a time on another thread and played as
+    // it arrives, so the first sound comes in a fraction of a second instead of
+    // after the whole render. Everything that carries from one sample to the
+    // next carries across the stretches, so this is the same audio `mat render`
+    // writes, to the byte.
+    let total = timeline.end.max(0.0);
+    let expected = (total * sample_rate as f64) as usize + sample_rate as usize;
+    let audio = Arc::new(std::sync::Mutex::new(Playing {
+        left: Vec::with_capacity(expected),
+        right: Vec::with_capacity(expected),
+        done: false,
+    }));
     let position = Arc::new(AtomicUsize::new(0));
-    let (data, pos) = (audio.clone(), position.clone());
-    let stream = device.build_output_stream(
-        config,
-        move |out: &mut [f32], _: &cpal::OutputCallbackInfo| {
-            let mut p = pos.load(Ordering::Relaxed);
-            for frame in out.chunks_mut(channels) {
-                let (l, r) = if p < data.left.len() { (data.left[p], data.right[p]) } else { (0.0, 0.0) };
-                for (c, s) in frame.iter_mut().enumerate() {
-                    *s = if c % 2 == 0 { l } else { r };
+    let rendered = Arc::new(AtomicUsize::new(0));
+    let started = Instant::now();
+
+    println!("{}, {} — rendering as it plays (Ctrl-C to stop)", timeline.title.as_deref().unwrap_or("untitled"), format_time(total));
+
+    std::thread::scope(|scope| -> anyhow::Result<()> {
+        let renderer = {
+            let (audio, rendered) = (audio.clone(), rendered.clone());
+            scope.spawn(move || {
+                let stems = match render_audio_unit_stems(timeline, sample_rate) {
+                    Ok(stems) => stems,
+                    Err(err) => {
+                        eprintln!("warning: {err:#}");
+                        HashMap::new()
+                    }
+                };
+                let options = mat_core::render::RenderOptions { split: false, cache: None, stems_through_master: false };
+                let mut stream = mat_core::stream::Stream::start(timeline, sample_rate, stems, &options);
+                for part in stream.by_ref() {
+                    let mut a = audio.lock().expect("the audio callback never panics with the lock");
+                    a.left.extend_from_slice(&part.left);
+                    a.right.extend_from_slice(&part.right);
+                    rendered.store(a.left.len(), Ordering::Relaxed);
                 }
-                p += 1;
+                // A render's last act is to cut the trailing silence and fade
+                // the 50 ms before it, so the finished mix replaces the tail
+                // that was handed out. It is never longer than what was played.
+                let rendering = stream.finish();
+                let mut a = audio.lock().expect("the audio callback never panics with the lock");
+                a.left.clear();
+                a.left.extend_from_slice(&rendering.mix.left);
+                a.right.clear();
+                a.right.extend_from_slice(&rendering.mix.right);
+                a.done = true;
+                rendered.store(a.left.len(), Ordering::Relaxed);
+                rendering
+            })
+        };
+
+        let (data, pos) = (audio.clone(), position.clone());
+        let stream = device.build_output_stream(
+            config,
+            move |out: &mut [f32], _: &cpal::OutputCallbackInfo| {
+                let mut p = pos.load(Ordering::Relaxed);
+                // If the render is momentarily behind the speakers, play
+                // silence rather than skip: the position does not advance, so
+                // nothing of the song is lost.
+                let a = data.lock().expect("the render thread never panics with the lock");
+                for frame in out.chunks_mut(channels) {
+                    let (l, r) = if p < a.left.len() { (a.left[p], a.right[p]) } else { (0.0, 0.0) };
+                    for (c, s) in frame.iter_mut().enumerate() {
+                        *s = if c % 2 == 0 { l } else { r };
+                    }
+                    if p < a.left.len() {
+                        p += 1;
+                    }
+                }
+                pos.store(p, Ordering::Relaxed);
+            },
+            |err| eprintln!("audio stream error: {err}"),
+            None,
+        )?;
+        stream.play()?;
+
+        // One line, rewritten: where the speakers are, and how far ahead of
+        // them the render is.
+        let mut render_secs = None;
+        loop {
+            let done = audio.lock().expect("the render thread never panics with the lock").done;
+            let played = position.load(Ordering::Relaxed) as f64 / sample_rate as f64;
+            let ready = rendered.load(Ordering::Relaxed) as f64 / sample_rate as f64;
+            if done && render_secs.is_none() {
+                render_secs = Some(started.elapsed().as_secs_f64());
             }
-            pos.store(p, Ordering::Relaxed);
-        },
-        |err| eprintln!("audio stream error: {err}"),
-        None,
-    )?;
-    stream.play()?;
-    println!("playing... (Ctrl-C to stop)");
-    while position.load(Ordering::Relaxed) < audio.left.len() {
-        std::thread::sleep(Duration::from_millis(100));
-    }
-    std::thread::sleep(Duration::from_millis(200));
-    Ok(())
+            let tail = match render_secs {
+                Some(secs) => format!("rendered in {secs:.1}s"),
+                None => format!("rendering {:.0}%", 100.0 * (ready / total.max(1e-6)).min(1.0)),
+            };
+            print!("\r  {} / {}  ·  {tail}    ", format_time(played), format_time(total));
+            use std::io::Write;
+            let _ = std::io::stdout().flush();
+            if done && position.load(Ordering::Relaxed) >= rendered.load(Ordering::Relaxed) {
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(100));
+        }
+        println!();
+
+        let rendering = renderer.join().map_err(|_| anyhow::anyhow!("the render thread panicked"))?;
+        for warning in &rendering.report.warnings {
+            eprintln!("warning: {warning}");
+        }
+        for name in &rendering.report.skipped_tracks {
+            eprintln!("warning: track '{name}' uses an Audio Unit instrument and was skipped");
+        }
+        let audio = &rendering.mix;
+        println!("played {} , peak {:.1} dBFS, rms {:.1} dBFS", format_time(audio.duration()), audio.peak_db(), audio.rms_db());
+        std::thread::sleep(Duration::from_millis(200));
+        Ok(())
+    })
 }
 
 fn format_time(seconds: f64) -> String {
