@@ -148,6 +148,19 @@ impl LayerCache {
     }
 }
 
+/// A serialised track without its regions and its notes' region indices.
+pub(crate) fn without_placements(track: &mut serde_json::Value) {
+    let Some(track) = track.as_object_mut() else { return };
+    track.remove("regions");
+    if let Some(notes) = track.get_mut("notes").and_then(|n| n.as_array_mut()) {
+        for note in notes {
+            if let Some(note) = note.as_object_mut() {
+                note.remove("region");
+            }
+        }
+    }
+}
+
 /// What a layer is keyed by, or nil when it cannot be cached.
 pub fn layer_key(timeline: &Timeline, members: &[usize], sample_rate: u32) -> Option<u64> {
     let tracks = &timeline.tracks;
@@ -167,7 +180,11 @@ pub fn layer_key(timeline: &Timeline, members: &[usize], sample_rate: u32) -> Op
     let mut files: Vec<String> = Vec::new();
 
     let add_track = |hash: Fnv, ti: usize, files: &mut Vec<String>| -> Option<Fnv> {
-        let value = serde_json::to_value(&tracks[ti]).ok()?;
+        let mut value = serde_json::to_value(&tracks[ti]).ok()?;
+        // Where the track's `play` lines are written is not what it sounds
+        // like: keyed, moving a line would render the layer again, and a
+        // region's file would be taken for a file the layer reads.
+        without_placements(&mut value);
         collect_files(&value, files);
         Some(hash.str(&value.to_string()))
     };
@@ -303,6 +320,17 @@ master
         assert_ne!(before["two"], after["two"]);
         assert_eq!(before["one"], after["one"]);
         assert_eq!(before["drums"], after["drums"]);
+    }
+
+    /// Where a `play` is written is not how it sounds: comments that move
+    /// every line down leave every layer's key alone, though the regions the
+    /// export gives say the new lines.
+    #[test]
+    fn moving_the_lines_leaves_every_key_alone() {
+        let before = keys(&timeline(SONG));
+        let moved = timeline(&format!("# a comment\n# and another\n{SONG}"));
+        assert_eq!(before, keys(&moved));
+        assert!(moved.tracks.iter().all(|t| !t.regions.is_empty()));
     }
 
     /// A track inserted before the others changes nobody's take.

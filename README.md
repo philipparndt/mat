@@ -31,6 +31,13 @@ cargo build --release
 ./target/release/mat presets                                # built-in instrument and master presets
 ```
 
+`mat export` is the song as `mat` arranged it: per track its instrument,
+settings and notes in seconds, and its `regions` — one per `play` line, however
+often it repeats, with the pattern's name, `start` and `end`, the length of one
+`pass`, `repeat`, `transpose`, and the `file` and `line` it was written on and
+the pattern was defined on. Each note's `region` is the index of the one it came
+from. It is what an editor draws a song's patterns and notes from.
+
 Audio Unit instruments (macOS) need the Swift host:
 
 ```sh

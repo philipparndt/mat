@@ -27,6 +27,43 @@ pub struct TimedNote {
     /// inserting either changed every take after it.
     #[serde(default)]
     pub seed: u64,
+    /// Which of its track's [`TimelineRegion`]s this note was placed by, for an
+    /// editor that draws notes inside the regions they came from. Not part of
+    /// what a note sounds like, so a layer's cache key leaves it out.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub region: Option<usize>,
+}
+
+/// One `play` of a track: a pattern, or a stretch of the track's audio, put on
+/// the timeline — what a DAW draws as a region. One per `play` line, however
+/// many times it repeats, so `play brass x4` is one region of four passes.
+///
+/// Where it was written is kept so an editor can go from the drawing to the
+/// source; nothing here changes the sound, and a layer's cache key leaves it
+/// out, so moving a line does not render the layer again.
+#[derive(Debug, Clone, Serialize)]
+pub struct TimelineRegion {
+    /// `pattern` or `audio`.
+    pub kind: &'static str,
+    /// The pattern's name; `audio` for a stretch of the track's audio.
+    pub name: String,
+    /// Seconds.
+    pub start: f64,
+    pub end: f64,
+    /// The length of one pass, in seconds.
+    pub pass: f64,
+    pub repeat: u32,
+    /// Semitones.
+    pub transpose: f32,
+    /// The file the `play` line is in, as the song's own sources name it, and
+    /// its line, 1-based.
+    pub file: String,
+    pub line: usize,
+    /// Where the pattern is defined; absent for audio.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub pattern_file: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub pattern_line: Option<usize>,
 }
 
 /// A resolved parameter sweep in seconds.
@@ -91,6 +128,9 @@ pub struct TimelineTrack {
     pub sweeps: Vec<Sweep>,
     pub notes: Vec<TimedNote>,
     pub clips: Vec<AudioClip>,
+    /// Each `play`, in the order they were written. See [`TimelineRegion`].
+    #[serde(default)]
+    pub regions: Vec<TimelineRegion>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -112,6 +152,15 @@ pub struct Timeline {
     /// that is dropped again. See [`crate::bars`].
     #[serde(skip_serializing_if = "Option::is_none")]
     pub window: Option<crate::bars::Window>,
+}
+
+/// A source file's name as an editor can find it: relative to the song's own
+/// directory when it is under it, as read otherwise, and empty for a song
+/// parsed from text alone.
+fn source_name(song: &Song, file: usize) -> String {
+    let Some(path) = song.sources.get(file) else { return String::new() };
+    let base = song.sources.first().and_then(|song| song.parent());
+    base.and_then(|base| path.strip_prefix(base).ok()).unwrap_or(path).to_string_lossy().into_owned()
 }
 
 pub fn arrange(song: &Song) -> Result<Timeline, Vec<Diagnostic>> {
@@ -141,13 +190,34 @@ pub fn arrange(song: &Song) -> Result<Timeline, Vec<Diagnostic>> {
 
         let mut notes = Vec::new();
         let mut clips = Vec::new();
+        let mut regions = Vec::new();
         let mut cursor: Whole = 0.0;
         for step in &track.steps {
             match step {
                 TrackStep::At { bar: b } => cursor = (b - 1.0) * bar,
                 TrackStep::Rest { bars } => cursor += bars * bar,
-                TrackStep::PlayAudio { bars, repeat, .. } => {
+                TrackStep::PlayAudio { bars, repeat, line } => {
                     let Some((source, _)) = &track.audio else { continue };
+                    // The whole file is as long as the file, which is not
+                    // known until it is read: a region of no length there.
+                    let pass = match bars {
+                        Some((from, to)) => song.seconds((to - from + 1.0) * bar),
+                        None => 0.0,
+                    };
+                    let start = song.seconds(cursor);
+                    regions.push(TimelineRegion {
+                        kind: "audio",
+                        name: "audio".to_string(),
+                        start,
+                        end: start + pass * *repeat as f64,
+                        pass,
+                        repeat: *repeat,
+                        transpose: 0.0,
+                        file: source_name(song, track.span.file),
+                        line: *line,
+                        pattern_file: None,
+                        pattern_line: None,
+                    });
                     for _ in 0..*repeat {
                         match bars {
                             None => {
@@ -189,6 +259,22 @@ pub fn arrange(song: &Song) -> Result<Timeline, Vec<Diagnostic>> {
                         Some((_, InstrumentKind::Samples(def))) => def.settings.drum_map.as_slice(),
                         _ => &[],
                     };
+                    let start = song.seconds(cursor);
+                    let pass = song.seconds(pat.length);
+                    let region = regions.len();
+                    regions.push(TimelineRegion {
+                        kind: "pattern",
+                        name: pattern.clone(),
+                        start,
+                        end: start + pass * *repeat as f64,
+                        pass,
+                        repeat: *repeat,
+                        transpose: *transpose,
+                        file: source_name(song, span.file),
+                        line: span.line,
+                        pattern_file: Some(source_name(song, pat.span.file)),
+                        pattern_line: Some(pat.span.line),
+                    });
                     for _ in 0..*repeat {
                         for ev in &pat.events {
                             let midi = match ev.pitch {
@@ -208,6 +294,7 @@ pub fn arrange(song: &Song) -> Result<Timeline, Vec<Diagnostic>> {
                                 accent: ev.accent,
                                 slide: ev.slide,
                                 seed: 0,
+                                region: Some(region),
                             });
                         }
                         cursor += pat.length;
@@ -295,6 +382,7 @@ pub fn arrange(song: &Song) -> Result<Timeline, Vec<Diagnostic>> {
                 .collect(),
             notes,
             clips,
+            regions,
         });
     }
 
@@ -487,6 +575,38 @@ mod tests {
         }
     }
 
+    /// Every `play` is one region however often it repeats, where the cursor
+    /// put it, naming the line it is on and the pattern's; every note of it
+    /// says so and lies inside it.
+    #[test]
+    fn each_play_is_one_region_holding_its_notes() {
+        let song = "tempo 120
+instrument b synth
+pattern p
+  C4 D4 E4 F4 |
+pattern q
+  G4:h A4:h |
+track one
+  instrument b
+  at 3
+  play p x4
+  rest 1
+  play q transpose=12
+";
+        let timeline = crate::compile(song).expect("the song compiles").0;
+        let track = &timeline.tracks[0];
+        let regions: Vec<_> = track.regions.iter().map(|r| (r.name.as_str(), r.start, r.end, r.repeat, r.line, r.pattern_line)).collect();
+        // A bar is two seconds at 120: bar 3 is 4 s, four bars on is 12 s, a
+        // bar's rest, and q from 14 s.
+        assert_eq!(regions, vec![("p", 4.0, 12.0, 4, 10, Some(3)), ("q", 14.0, 16.0, 1, 12, Some(5))]);
+        assert_eq!(track.regions[1].transpose, 12.0);
+        assert_eq!(track.notes.len(), 18);
+        for note in &track.notes {
+            let region = &track.regions[note.region.expect("a pattern's note has a region")];
+            assert!(note.start >= region.start && note.start < region.end, "{note:?} is outside {region:?}");
+        }
+    }
+
     /// Loops are written out by the parser, so a song with them is the song
     /// without them to everything after it: the same timeline, the same samples.
     #[test]
@@ -562,7 +682,16 @@ track drums
 ";
         let arranged = |text: &str| crate::compile(text).expect("the song compiles").0;
         let (a, b) = (arranged(looped), arranged(written));
-        assert_eq!(serde_json::to_value(&a).unwrap(), serde_json::to_value(&b).unwrap(), "the same timeline");
+        // The same timeline, but for where each `play` is written: one loop
+        // line is several written ones.
+        let placed = |t: &super::Timeline| {
+            let mut value = serde_json::to_value(t).unwrap();
+            for track in value["tracks"].as_array_mut().unwrap() {
+                crate::render_cache::without_placements(track);
+            }
+            value
+        };
+        assert_eq!(placed(&a), placed(&b), "the same timeline");
         let (left, _) = crate::render(&a, 22_050, Default::default());
         let (right, _) = crate::render(&b, 22_050, Default::default());
         assert!(left.left.len() > 22_050 && left.rms_db() > -40.0, "a song several bars long, and heard");
