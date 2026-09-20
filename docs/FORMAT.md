@@ -334,6 +334,12 @@ track melody
 ```
 
 `play` places patterns one after another. `at` and `rest` move the position.
+
+`mute` on a `play` line switches that one block off: `play verse x2 mute`. The
+block keeps its place and its length, so everything after it stays where it
+was — which taking the line out, or commenting it, would not do. It plays
+nothing and triggers no sidechain. (`mute` on a line of its own mutes the whole
+track, which still triggers sidechains.)
 `repeat 4 { … }` plays the steps inside it again and again (see [Loops](#loops)).
 
 ### Groove

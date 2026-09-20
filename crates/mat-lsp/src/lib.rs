@@ -458,6 +458,7 @@ fn track_completions(analysis: &Analysis, typing: &Typing) -> Vec<CompletionItem
         ("play", _) => {
             let mut items = option_items(&["transpose", "vel", "bars"]);
             items.push(item("x2", CompletionItemKind::VALUE, Some("repeat; any count")));
+            items.push(item("mute", CompletionItemKind::KEYWORD, Some("this block off: it keeps its place and plays nothing")));
             items
         }
         ("sidechain", 1) => name_items(analysis.track_names(), CompletionItemKind::REFERENCE, "track"),

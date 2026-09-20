@@ -651,10 +651,12 @@ pub struct Instrument {
 
 #[derive(Debug, Clone)]
 pub enum TrackStep {
-    Play { pattern: String, span: Span, repeat: u32, transpose: f32, velocity: f32 },
+    /// `muted`: `play beat x4 mute` — the block keeps its place and its length
+    /// on the timeline and plays nothing, so what follows it stays where it is.
+    Play { pattern: String, span: Span, repeat: u32, transpose: f32, velocity: f32, muted: bool },
     /// Audio tracks: source bars `from..=to` (1-based), or the whole file.
     /// `line` is where it was written, 1-based, for an editor.
-    PlayAudio { bars: Option<(f64, f64)>, repeat: u32, line: usize },
+    PlayAudio { bars: Option<(f64, f64)>, repeat: u32, line: usize, muted: bool },
     Rest { bars: f64 },
     At { bar: f64 },
 }

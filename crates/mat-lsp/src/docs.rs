@@ -211,7 +211,7 @@ pub const TRACK_SETTINGS: &[Doc] = &[
     ("reverb", "Send amount into the master reverb, 0 to 1."),
     ("delay", "Send amount into the master delay, 0 to 1."),
     ("at", "Jump to a bar: `at 5`."),
-    ("play", "`play <pattern> [x2] [transpose=] [vel=]`; audio tracks: `play bars=17-24 x2` or `play all`."),
+    ("play", "`play <pattern> [x2] [transpose=] [vel=] [mute]`; audio tracks: `play bars=17-24 x2` or `play all`. `mute` switches the block off and keeps its place."),
     ("rest", "Skip bars: `rest 4`."),
     ("repeat", "`repeat <n> {` plays the steps up to its `}` n times, one after another: `play`, `rest` and other `repeat` blocks, but not `at`."),
     ("mute", "Rendered silent; still triggers sidechains."),

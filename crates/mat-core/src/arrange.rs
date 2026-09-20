@@ -64,6 +64,10 @@ pub struct TimelineRegion {
     pub pattern_file: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub pattern_line: Option<usize>,
+    /// The `play` line says `mute`: the region is where it would be, and
+    /// nothing in it sounds.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub muted: bool,
 }
 
 /// A resolved parameter sweep in seconds.
@@ -198,7 +202,7 @@ pub fn arrange(song: &Song) -> Result<Timeline, Vec<Diagnostic>> {
             match step {
                 TrackStep::At { bar: b } => cursor = (b - 1.0) * bar,
                 TrackStep::Rest { bars } => cursor += bars * bar,
-                TrackStep::PlayAudio { bars, repeat, line } => {
+                TrackStep::PlayAudio { bars, repeat, line, muted } => {
                     let Some((source, _)) = &track.audio else { continue };
                     // The whole file is as long as the file, which is not
                     // known until it is read: a region of no length there.
@@ -219,9 +223,14 @@ pub fn arrange(song: &Song) -> Result<Timeline, Vec<Diagnostic>> {
                         line: *line,
                         pattern_file: None,
                         pattern_line: None,
+                        muted: *muted,
                     });
                     for _ in 0..*repeat {
                         match bars {
+                            // Muted, the whole file takes no time, as it takes
+                            // none played; a stretch of bars takes its bars.
+                            None if *muted => {}
+                            Some((from, to)) if *muted => cursor += (to - from + 1.0) * bar,
                             None => {
                                 clips.push(AudioClip { at: song.seconds(cursor) - source.offset, source_start: 0.0, length: None });
                             }
@@ -237,7 +246,7 @@ pub fn arrange(song: &Song) -> Result<Timeline, Vec<Diagnostic>> {
                         }
                     }
                 }
-                TrackStep::Play { pattern, span, repeat, transpose, velocity } => {
+                TrackStep::Play { pattern, span, repeat, transpose, velocity, muted } => {
                     if track.audio.is_some() {
                         diags.push(Diagnostic::error(*span, "audio tracks play: all, or bars=<from>-<to>").with_hint("put the 'audio' line before 'play' lines"));
                         continue;
@@ -276,7 +285,16 @@ pub fn arrange(song: &Song) -> Result<Timeline, Vec<Diagnostic>> {
                         line: span.line,
                         pattern_file: Some(source_name(song, pat.span.file)),
                         pattern_line: Some(pat.span.line),
+                        muted: *muted,
                     });
+                    // Muted: the pattern is still looked up and checked, so a
+                    // block switched off does not hide a mistake until it is
+                    // switched on again. It plays nothing — no notes, so no
+                    // sidechain trigger either, unlike a muted track.
+                    if *muted {
+                        cursor += pat.length * *repeat as f64;
+                        continue;
+                    }
                     for _ in 0..*repeat {
                         for ev in &pat.events {
                             let midi = match ev.pitch {
@@ -609,6 +627,56 @@ track one
             let region = &track.regions[note.region.expect("a pattern's note has a region")];
             assert!(note.start >= region.start && note.start < region.end, "{note:?} is outside {region:?}");
         }
+    }
+
+    /// A muted `play` is a region where it would have been, with nothing in
+    /// it, and what follows it is where it was: taking the line out instead
+    /// would have moved `q` four bars earlier.
+    #[test]
+    fn a_muted_play_keeps_its_place_and_plays_nothing() {
+        let song = |mute: &str| {
+            format!(
+                "tempo 120
+instrument b synth
+pattern p
+  C4 D4 E4 F4 |
+pattern q
+  G4:h A4:h |
+track one
+  instrument b
+  play p x4{mute}
+  play q
+"
+            )
+        };
+        let heard = crate::compile(&song("")).expect("the song compiles").0;
+        let muted = crate::compile(&song(" mute")).expect("the song compiles").0;
+        let regions = |t: &crate::arrange::Timeline| t.tracks[0].regions.iter().map(|r| (r.name.clone(), r.start, r.end, r.muted)).collect::<Vec<_>>();
+        assert_eq!(regions(&heard), vec![("p".to_string(), 0.0, 8.0, false), ("q".to_string(), 8.0, 10.0, false)]);
+        assert_eq!(regions(&muted), vec![("p".to_string(), 0.0, 8.0, true), ("q".to_string(), 8.0, 10.0, false)]);
+        assert_eq!(heard.tracks[0].notes.len(), 18);
+        let notes = &muted.tracks[0].notes;
+        assert_eq!(notes.len(), 2);
+        assert!(notes.iter().all(|n| n.region == Some(1) && n.start >= 8.0));
+        // Only a muted region says so: every other export is what it was.
+        let written = serde_json::to_string(&muted.tracks[0].regions).expect("regions serialize");
+        assert_eq!(written.matches("\"muted\":true").count(), 1);
+        assert!(!written.contains("\"muted\":false"));
+    }
+
+    /// A block switched off is still checked: a pattern that is not there is
+    /// an error now, not when the block is switched on again.
+    #[test]
+    fn a_muted_play_of_an_unknown_pattern_is_still_an_error() {
+        let song = "tempo 120
+instrument b synth
+pattern p
+  C4 |
+track one
+  instrument b
+  play nothing mute
+";
+        assert!(crate::compile(song).is_err());
     }
 
     /// Loops are written out by the parser, so a song with them is the song

@@ -1815,9 +1815,12 @@ impl Parser {
                     let mut bars = None;
                     let mut repeat = 1;
                     let mut whole = false;
+                    let mut muted = false;
                     for tok in &line.tokens[1..] {
                         if tok.text == "all" {
                             whole = true;
+                        } else if tok.text == "mute" {
+                            muted = true;
                         } else if let Some(n) = tok.text.strip_prefix('x').and_then(|n| n.parse::<u32>().ok()) {
                             repeat = n.max(1);
                         } else if let Some(range) = tok.text.strip_prefix("bars=") {
@@ -1827,32 +1830,35 @@ impl Parser {
                                 _ => self.err_hint(tok.span, format!("invalid bar range '{range}'"), "write it like bars=17-24 (inclusive, bar numbers of the audio file)"),
                             }
                         } else {
-                            self.err_hint(tok.span, format!("unexpected '{}'", tok.text), "audio tracks play: all, or bars=<from>-<to>, optionally x<count>");
+                            self.err_hint(tok.span, format!("unexpected '{}'", tok.text), "audio tracks play: all, or bars=<from>-<to>, optionally x<count> and mute");
                         }
                     }
                     if !whole && bars.is_none() {
                         self.err_hint(kw.span, "missing what to play", "write: play all, or play bars=17-24");
                         continue;
                     }
-                    step(&mut open, &mut track.steps, TrackStep::PlayAudio { bars, repeat, line: kw.span.line });
+                    step(&mut open, &mut track.steps, TrackStep::PlayAudio { bars, repeat, line: kw.span.line, muted });
                 }
                 "play" => {
                     let Some(t) = self.arg(line, 1, "pattern name") else { continue };
                     let mut repeat = 1;
                     let mut transpose = 0.0;
                     let mut velocity = 1.0;
+                    let mut muted = false;
                     for tok in &line.tokens[2..] {
-                        if let Some(n) = tok.text.strip_prefix('x').and_then(|n| n.parse::<u32>().ok()) {
+                        if tok.text == "mute" {
+                            muted = true;
+                        } else if let Some(n) = tok.text.strip_prefix('x').and_then(|n| n.parse::<u32>().ok()) {
                             repeat = n.max(1);
                         } else if let Some(("transpose", v)) = tok.text.split_once('=') {
                             set(&mut transpose, self.value(tok, v, -48.0, 48.0));
                         } else if let Some(("vel", v)) = tok.text.split_once('=') {
                             set(&mut velocity, self.value(tok, v, 0.0, 2.0));
                         } else {
-                            self.err_hint(tok.span, format!("unexpected '{}'", tok.text), "play options: x<count>, transpose=<semitones>, vel=<scale>");
+                            self.err_hint(tok.span, format!("unexpected '{}'", tok.text), "play options: x<count>, transpose=<semitones>, vel=<scale>, mute");
                         }
                     }
-                    step(&mut open, &mut track.steps, TrackStep::Play { pattern: t.text.clone(), span: t.span, repeat, transpose, velocity });
+                    step(&mut open, &mut track.steps, TrackStep::Play { pattern: t.text.clone(), span: t.span, repeat, transpose, velocity, muted });
                 }
                 other => self.unknown_keyword(
                     kw,

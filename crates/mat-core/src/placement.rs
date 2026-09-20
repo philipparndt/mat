@@ -132,7 +132,17 @@ pub fn placements(song: &Song) -> Placements {
             match step {
                 TrackStep::At { bar: b } => cursor = (b - 1.0) * bar,
                 TrackStep::Rest { bars } => cursor += bars * bar,
-                TrackStep::PlayAudio { bars, repeat, line } => {
+                // A muted play is heard nowhere: it takes its time and marks nothing.
+                TrackStep::PlayAudio { bars, repeat, muted: true, .. } => {
+                    if let Some((from, to)) = bars {
+                        cursor += (to - from + 1.0) * bar * *repeat as f64;
+                    }
+                }
+                TrackStep::Play { pattern, repeat, muted: true, .. } => {
+                    let Some(pat) = song.patterns.iter().find(|p| &p.name == pattern) else { continue };
+                    cursor += pat.length * *repeat as f64;
+                }
+                TrackStep::PlayAudio { bars, repeat, line, .. } => {
                     let Some((source, _)) = &track.audio else { continue };
                     match bars {
                         // The whole file, bar 1 aligned: its length is the file's,
