@@ -26,6 +26,7 @@ pub const INSTRUMENT_KINDS: &[Doc] = &[
     ("synth", "Subtractive synthesizer: oscillators, noise, filters, envelopes, LFOs, glide."),
     ("drums", "Synthesized drum kit: kick, snare, clap, hat, openhat, tom, rim, crash, ride."),
     ("tb303", "Acid bass line synthesizer with accents and slides."),
+    ("fm", "FM synthesizer: up to six sine operators, carriers and modulators (`into=`). Electric pianos, bells, 80s basses."),
     ("samples", "Your own samples, cut from audio files by time."),
     ("scratch", "Turntable scratching over a sample or another track's audio."),
     ("sampler", "Logic / GarageBand `.exs` sampler instruments."),
@@ -55,6 +56,7 @@ pub const SYNTH_SETTINGS: &[Doc] = &[
     ("vibrato", "`rate=` Hz, `depth=` cents, `delay=` seconds before it sets in."),
     ("lfo", "`lfo <filter|pitch|pan|amp|width|pw|fm> rate= depth= fade= phase=`; one line per LFO."),
     ("glide", "Portamento time from the previous note's pitch."),
+    ("legato", "Notes without a rest between them are one phrase: envelopes and vibrato carry on. For single lines."),
     ("penv", "Pitch envelope: starts `depth=` semitones away and decays to the note over `decay=`."),
     ("drift", "Random detune per note, in cents, like drifting analog oscillators."),
     ("gain", "Gain in dB."),
@@ -83,6 +85,14 @@ pub const DRUMS_SETTINGS: &[Doc] = &[
     ("crash", "`gain=` dB, `tune=` semitones, `decay=` multiplier."),
     ("ride", "`gain=` dB, `tune=` semitones, `decay=` multiplier."),
     ("gain", "Gain in dB."),
+];
+
+pub const FM_SETTINGS: &[Doc] = &[
+    ("op", "`op <n> ratio= level= into=<m> …`: an operator. Without `into` it is a carrier and sounds; with it, it modulates operator m (a lower number)."),
+    ("vibrato", "`rate= depth= delay=`."),
+    ("penv", "Pitch envelope: `depth=` semitones, `decay=`."),
+    ("drift", "Random detune per note in cents."),
+    ("stereo", "Detune between the left and the right side in cents, for width."),
 ];
 
 pub const TB303_SETTINGS: &[Doc] = &[
@@ -150,6 +160,7 @@ pub fn instrument_settings(kind: &str) -> &'static [Doc] {
     match kind {
         "drums" => DRUMS_SETTINGS,
         "tb303" => TB303_SETTINGS,
+        "fm" => FM_SETTINGS,
         "samples" => SAMPLES_SETTINGS,
         "scratch" => SCRATCH_SETTINGS,
         "sampler" => SAMPLER_SETTINGS,
@@ -210,6 +221,7 @@ pub const TRACK_SETTINGS: &[Doc] = &[
     ("seed", "This track's take instead of the song's: `seed 3`."),
     ("eq", "`lowcut= low= lowfreq= mid= midfreq= high= highfreq= highcut=`."),
     ("comp", "`threshold= ratio= attack= release= makeup= mode=feedforward|feedback`."),
+    ("distortion", "`drive= mode=soft|hard|fold|fuzz tone= bits= rate= mix= level=`: waveshaper, crusher and tone lowpass, after the compressor."),
     ("chorus", "`mix= rate= depth=`."),
     ("phaser", "`rate= depth= stages= feedback= mix=`."),
     ("sidechain", "`sidechain <track> depth= attack= release= on=kick`: duck this track on every hit of another."),
@@ -246,7 +258,8 @@ pub const MASTER_SETTINGS: &[Doc] = &[
 pub fn options(setting: &str, kind: &str) -> &'static [&'static str] {
     match (setting, kind) {
         ("osc", _) => &["level", "octave", "semi", "detune", "voices", "spread", "width", "pw", "fm", "fmratio", "fmenv", "mix"],
-        ("filter", _) => &["cutoff", "res", "env", "keytrack", "drive"],
+        ("filter", _) => &["cutoff", "res", "env", "keytrack", "drive", "slope"],
+        ("op", _) => &["ratio", "fixed", "detune", "level", "vel", "keyscale", "feedback", "attack", "decay", "sustain", "release", "into"],
         ("amp", _) | ("fenv", _) => &["attack", "decay", "sustain", "release"],
         ("vibrato", _) => &["rate", "depth", "delay"],
         ("lfo", _) => &["rate", "depth", "fade", "phase"],
@@ -261,6 +274,7 @@ pub fn options(setting: &str, kind: &str) -> &'static [&'static str] {
         ("map", "sampler") => &["kick", "snare", "clap", "hat", "openhat", "tom", "rim", "crash", "ride"],
         ("eq", _) => &["lowcut", "low", "lowfreq", "mid", "midfreq", "high", "highfreq", "highcut"],
         ("comp", _) => &["threshold", "ratio", "attack", "release", "makeup", "mode"],
+        ("distortion", _) => &["drive", "mode", "tone", "bits", "rate", "mix", "level"],
         ("chorus", _) => &["mix", "rate", "depth"],
         ("phaser", _) => &["rate", "depth", "stages", "feedback", "mix"],
         ("sidechain", "track") => &["depth", "attack", "release", "on"],

@@ -608,7 +608,7 @@ fn add_into(bus: &mut [Vec<f32>; 2], audio: &TrackAudio, amount: f32) {
     }
 }
 
-/// The track's insert chain: EQ, compressor, chorus, phaser, ducking, gain
+/// The track's insert chain: EQ, compressor, distortion, chorus, phaser, ducking, gain
 /// sweeps, then gain and pan.
 fn process_track(track: &TimelineTrack, clips: &[StereoClip], sr: f32) -> Option<TrackAudio> {
     let start = clips.iter().map(|c| c.offset).min()?;
@@ -630,6 +630,9 @@ fn process_track(track: &TimelineTrack, clips: &[StereoClip], sr: f32) -> Option
     }
     if let Some(comp) = &track.comp {
         crate::dsp::dynamics::compress(comp, &mut left, &mut right, sr);
+    }
+    if let Some(d) = &track.distortion {
+        crate::dsp::distortion::apply_distortion(d, &mut left, &mut right, sr);
     }
     if let Some(chorus) = &track.chorus {
         apply_chorus(chorus, &mut left, &mut right, sr);
@@ -779,16 +782,12 @@ pub(crate) fn render_track_before(track: &TimelineTrack, sr: f32, until: f64) ->
                 .enumerate()
                 .filter(|(_, n)| n.start < until)
                 .map(|(i, note)| {
-                    // Portamento glides from the last note that started before this one.
-                    let from = if def.glide > 0.0 {
-                        track.notes[..i].iter().rev().find(|p| p.start < note.start - 1e-6).map(|p| p.midi)
-                    } else {
-                        None
-                    };
-                    synth::render_note_from(def, note, from, &track.sweeps, sr, note.seed)
+                    // Portamento and legato: what the note needs to know of its neighbours.
+                    synth::render_note_in(def, note, &synth::NoteContext::of(def, &track.notes, i), &track.sweeps, sr)
                 })
                 .collect(),
         )),
+        InstrumentKind::Fm(def) => Some(Ok(track.notes.par_iter().filter(|n| n.start < until).map(|note| crate::instruments::fm::render_note(def, note, sr)).collect())),
         InstrumentKind::Drums(kit) => Some(Ok(
             track
                 .notes

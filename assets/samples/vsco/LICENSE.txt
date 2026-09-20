@@ -1,0 +1,19 @@
+These samples come from the Versilian Studios Chamber Orchestra 2 Community
+Edition (VSCO 2 CE, https://github.com/sgossner/VSCO-2-CE) by Sam Gossner and
+contributors, placed in the public domain under Creative Commons 0
+(https://creativecommons.org/publicdomain/zero/1.0/).
+
+A selection, edited for mat: converted to 48 kHz / 16 bit, leading silence
+removed, shortened, faded and normalised. One dynamic layer and one round robin
+of each note.
+
+  strings-sus-<note>    cello section (C2-F3) and violin section (G3-D6), vibrato
+                        sustain, 3.6 s with a crossfaded loop from 1.2 s to 3.6 s
+  strings-spic-<note>   the same sections, spiccato
+  trumpet-stac-<note>   trumpet, staccato, loudest layer
+  trombone-stac-<note>  tenor trombone, staccato, loudest layer
+  timpani-1 .. 5        five drums, low to high
+  the rest              orchestral and Latin percussion, one hit each
+
+Note names are sounding pitch with C4 as middle C, `s` for sharp (the library's
+own file names are an octave lower).

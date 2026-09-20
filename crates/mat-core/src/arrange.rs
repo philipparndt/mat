@@ -124,6 +124,8 @@ pub struct TimelineTrack {
     pub comp: Option<CompSettings>,
     pub chorus: Option<ChorusSettings>,
     pub phaser: Option<PhaserSettings>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub distortion: Option<DistortionSettings>,
     pub duck: Option<Duck>,
     pub sweeps: Vec<Sweep>,
     pub notes: Vec<TimedNote>,
@@ -374,6 +376,7 @@ pub fn arrange(song: &Song) -> Result<Timeline, Vec<Diagnostic>> {
             comp: track.comp.clone(),
             chorus: track.chorus.clone(),
             phaser: track.phaser.clone(),
+            distortion: track.distortion.clone(),
             duck: None,
             sweeps: track
                 .sweeps
@@ -453,7 +456,7 @@ fn check_compatible(pat: &Pattern, kind: &InstrumentKind) -> Result<(), &'static
     let has_drums = pat.events.iter().any(|e| matches!(e.pitch, Pitch::Drum(_)));
     let has_notes = pat.events.iter().any(|e| matches!(e.pitch, Pitch::Note(_)));
     match kind {
-        InstrumentKind::Synth(_) | InstrumentKind::Tb303(_) if has_drums => Err("contains drum hits"),
+        InstrumentKind::Synth(_) | InstrumentKind::Fm(_) | InstrumentKind::Tb303(_) if has_drums => Err("contains drum hits"),
         InstrumentKind::Drums(_) | InstrumentKind::Scratch(_) if has_notes => Err("contains pitched notes"),
         InstrumentKind::Scratch(_) if pat.events.iter().any(|e| matches!(e.pitch, Pitch::Drum(d) if !d.is_scratch())) => Err("contains drum hits (scratch moves are baby, fwd, back, scribble, chirp, transform)"),
         _ => Ok(()),
@@ -463,6 +466,7 @@ fn check_compatible(pat: &Pattern, kind: &InstrumentKind) -> Result<(), &'static
 fn kind_label(kind: &InstrumentKind) -> &'static str {
     match kind {
         InstrumentKind::Synth(_) => "a synth",
+        InstrumentKind::Fm(_) => "an fm synth",
         InstrumentKind::Drums(_) => "a drum kit",
         InstrumentKind::Sampler(_) => "a sampler",
         InstrumentKind::Samples(_) => "a samples instrument",

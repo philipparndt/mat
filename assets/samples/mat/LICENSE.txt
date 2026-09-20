@@ -1,2 +1,4 @@
-These samples were rendered with mat itself (brass-stab and choir-pad presets)
-and are free to use without restriction (CC0).
+These samples were rendered with mat itself and are free to use without
+restriction (CC0): brass-stab and choir-ahh from the brass-stab and choir-pad
+presets, orch-hit from orch-hit.song, which layers VSCO 2 CE samples (CC0, see
+../vsco/LICENSE.txt).

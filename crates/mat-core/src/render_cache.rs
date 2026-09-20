@@ -46,7 +46,7 @@ pub const KEPT_FOR: Duration = Duration::from_secs(30 * 60);
 
 /// Bumped whenever what a layer's samples are a function of changes shape in
 /// a way the key would not see — a new effect stage, a changed default.
-const FORMAT: &str = "mat-layer-2";
+const FORMAT: &str = "mat-layer-3";
 
 pub struct LayerCache {
     dir: PathBuf,

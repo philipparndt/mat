@@ -33,6 +33,15 @@ impl Svf {
         self.a3 = g * self.a2;
     }
 
+    /// Copies the coefficients of a filter already set, for the other channel.
+    #[inline]
+    pub fn set_like(&mut self, other: &Svf) {
+        self.a1 = other.a1;
+        self.a2 = other.a2;
+        self.a3 = other.a3;
+        self.k = other.k;
+    }
+
     #[inline]
     pub fn process(&mut self, x: f32, mode: FilterMode) -> f32 {
         let v3 = x - self.ic2;
@@ -46,6 +55,52 @@ impl Svf {
             FilterMode::Highpass => x - self.k * v1 - v2,
             FilterMode::Off => x,
         }
+    }
+}
+
+/// Four-pole (24 dB/octave) lowpass ladder, zero-delay feedback, with the
+/// loop's input saturated — the sound of a transistor ladder pushed by its own
+/// resonance: it thickens instead of ringing thin. Meant to run oversampled.
+#[derive(Clone, Default)]
+pub struct Ladder {
+    s: [f32; 4],
+    g: f32,
+    k: f32,
+    comp: f32,
+}
+
+impl Ladder {
+    /// `resonance` is 0..1; 1 is at the edge of self-oscillation.
+    #[inline]
+    pub fn set(&mut self, cutoff: f32, resonance: f32, sample_rate: f32) {
+        let cutoff = cutoff.clamp(10.0, sample_rate * 0.45);
+        let g = (PI * cutoff / sample_rate).tan();
+        self.g = g / (1.0 + g);
+        self.k = 3.9 * resonance.clamp(0.0, 1.0);
+        // A ladder loses its passband as the resonance comes up; give half of it back.
+        self.comp = (1.0 + self.k).sqrt();
+    }
+
+    /// Copies the coefficients of a filter already set, for the other channel.
+    #[inline]
+    pub fn set_like(&mut self, other: &Ladder) {
+        self.g = other.g;
+        self.k = other.k;
+        self.comp = other.comp;
+    }
+
+    #[inline]
+    pub fn process(&mut self, x: f32) -> f32 {
+        let g = self.g;
+        let g2 = g * g;
+        let feedback = (1.0 - g) * (g2 * g * self.s[0] + g2 * self.s[1] + g * self.s[2] + self.s[3]);
+        let mut y = ((x * self.comp - self.k * feedback) / (1.0 + self.k * g2 * g2)).tanh();
+        for s in &mut self.s {
+            let v = (y - *s) * g;
+            y = v + *s;
+            *s = y + v;
+        }
+        y
     }
 }
 

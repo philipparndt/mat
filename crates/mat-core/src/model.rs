@@ -212,11 +212,13 @@ pub struct Filter {
     pub env_octaves: f32,
     pub keytrack: f32,
     pub drive: f32,
+    /// dB per octave: 12 (state variable) or, for a lowpass, 24 (ladder).
+    pub slope: u32,
 }
 
 impl Default for Filter {
     fn default() -> Self {
-        Self { mode: FilterMode::Off, cutoff_hz: 20_000.0, resonance: 0.0, env_octaves: 0.0, keytrack: 0.0, drive: 0.0 }
+        Self { mode: FilterMode::Off, cutoff_hz: 20_000.0, resonance: 0.0, env_octaves: 0.0, keytrack: 0.0, drive: 0.0, slope: 12 }
     }
 }
 
@@ -277,6 +279,9 @@ pub struct SynthDef {
     pub glide: f32,
     /// Pitch envelope: starts `depth` semitones away and decays to the note.
     pub pitch_env: Option<(f32, f32)>,
+    /// Notes that follow one another without a rest are one phrase: the
+    /// envelopes and the vibrato carry on instead of starting again.
+    pub legato: bool,
 }
 
 impl Default for SynthDef {
@@ -292,8 +297,44 @@ impl Default for SynthDef {
             drift_cents: 0.0,
             glide: 0.0,
             pitch_env: None,
+            legato: false,
         }
     }
+}
+
+/// One operator of an `fm` instrument.
+#[derive(Debug, Clone, Serialize)]
+pub struct FmOperator {
+    /// Frequency as a multiple of the note's, unless `fixed_hz` is set.
+    pub ratio: f32,
+    pub fixed_hz: Option<f32>,
+    pub detune_cents: f32,
+    /// 0..1 in steps of 6 dB per 0.125: loudness for a carrier, modulation depth for a modulator.
+    pub level: f32,
+    /// How much of the level a soft note loses (0..1).
+    pub velocity: f32,
+    /// How much of the level is lost per octave above C4 (1 = 6 dB).
+    pub keyscale: f32,
+    pub feedback: f32,
+    pub env: Adsr,
+    /// The operator this one modulates (index into `operators`), or none for a carrier.
+    pub into: Option<usize>,
+}
+
+impl Default for FmOperator {
+    fn default() -> Self {
+        Self { ratio: 1.0, fixed_hz: None, detune_cents: 0.0, level: 1.0, velocity: 0.5, keyscale: 0.0, feedback: 0.0, env: Adsr { attack: 0.002, decay: 0.6, sustain: 0.6, release: 0.25 }, into: None }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Default)]
+pub struct FmDef {
+    pub operators: Vec<FmOperator>,
+    pub vibrato: Vibrato,
+    pub drift_cents: f32,
+    /// Detune between the left and the right side in cents, for width.
+    pub stereo_cents: f32,
+    pub pitch_env: Option<(f32, f32)>,
 }
 
 #[derive(Debug, Clone, Copy, Serialize)]
@@ -521,6 +562,37 @@ impl Default for EqSettings {
     }
 }
 
+/// The shape `distortion` bends a signal through.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum DistortionMode {
+    Soft,
+    Hard,
+    Fold,
+    Fuzz,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct DistortionSettings {
+    /// 0..1: how hard the signal is pushed into the shaper.
+    pub drive: f32,
+    pub mode: DistortionMode,
+    /// Lowpass after the shaper; 0 is none.
+    pub tone_hz: f32,
+    /// Bit depth of the crusher; 0 is none.
+    pub bits: u32,
+    /// Sample rate of the crusher; 0 is none.
+    pub rate_hz: f32,
+    pub mix: f32,
+    pub level_db: f32,
+}
+
+impl Default for DistortionSettings {
+    fn default() -> Self {
+        Self { drive: 0.5, mode: DistortionMode::Soft, tone_hz: 6000.0, bits: 0, rate_hz: 0.0, mix: 1.0, level_db: 0.0 }
+    }
+}
+
 #[derive(Debug, Clone, Serialize)]
 pub struct PhaserSettings {
     pub rate_hz: f32,
@@ -567,6 +639,7 @@ pub enum InstrumentKind {
     Audio(AudioSource),
     Clap(ClapDef),
     Tb303(Tb303Def),
+    Fm(FmDef),
 }
 
 #[derive(Debug, Clone)]
@@ -605,6 +678,7 @@ pub struct Track {
     pub seed: Option<u64>,
     pub comp: Option<CompSettings>,
     pub phaser: Option<PhaserSettings>,
+    pub distortion: Option<DistortionSettings>,
     /// Stem group for `mat render --stems`; defaults to the track name.
     pub layer: Option<String>,
     pub eq: Option<EqSettings>,

@@ -27,6 +27,7 @@ cargo build --release
 ./target/release/mat render examples/drunken-sailor.song --stream         # written as it renders, to play at once
 ./target/release/mat play   examples/drunken-sailor.song   # render and play
 ./target/release/mat export examples/drunken-sailor.song   # arranged timeline as JSON
+./target/release/mat translate examples/drunken-sailor.song # how the mix carries to a Sonos, a car, a phone
 ./target/release/mat inspect "logic:01 Acoustic Pianos/Steinway Grand Piano 2.exs"
 ./target/release/mat presets                                # built-in instrument and master presets
 ```
@@ -37,6 +38,37 @@ often it repeats, with the pattern's name, `start` and `end`, the length of one
 `pass`, `repeat`, `transpose`, and the `file` and `line` it was written on and
 the pattern was defined on. Each note's `region` is the index of the one it came
 from. It is what an editor draws a song's patterns and notes from.
+
+### Checking a mix on other devices
+
+A mix that is perfect on headphones can fall apart on one speaker: the width
+cancels, the sub-bass is not played, the bass protection pumps. `mat translate`
+puts a song — or any WAV, AIFF or CAF — through models of other devices and
+says what each one loses:
+
+```sh
+mat translate song.song                                  # measure, on every device
+mat translate song.song --to sonos-five,car --bars 33-40 # two devices, eight bars: seconds
+mat translate song.song --on airpods-max --play          # loop it, and switch devices while it plays
+mat translate song.song --on airpods-max --out heard/    # original.wav and a WAV per device, at one loudness
+mat translate song.song --volume loud --json heard.json  # bass protection at work; the numbers as JSON
+mat translate --list                                     # the devices
+```
+
+It prints where the mix's energy is and what summing left and right costs each
+band (`mono loss`: 0 dB is mono, -3 dB is two unrelated sides, more than that is
+width made of phase, which one speaker cancels); then, per device, each band's
+level against the mix, and for a song each layer against the rest of the mix —
+a layer at -8 has sunk 8 dB into it, `gone` is not played at all. Lines with
+`!` say what to do something about.
+
+`--on` names what you are listening on. Its own colour is taken out of what you
+hear, so it is not added to the simulated device's, and a simulated speaker
+reaches both ears, as it does in a room. Headphones that play everything are
+the right thing to listen on; what a laptop cannot play, no simulation on it
+will. The devices are models — a roll-off, a response, a width, a bass limiter,
+road noise — near enough to say whether a bass line survives a small speaker,
+and no substitute for playing the song on one.
 
 Audio Unit instruments (macOS) need the Swift host:
 
@@ -77,7 +109,7 @@ certificate so that permission survives rebuilds.
 * `crates/mat-core`: parser with diagnostics, arrangement, DSP (PolyBLEP
   oscillators, JP-8000 style supersaw, ZDF state variable filter, EQ, chorus,
   sidechain ducking, Dattorro plate reverb, ping-pong delay, look-ahead limiter),
-  synth (with FM) and drum voices, TB-303, EXS sampler with sinc resampling, scratch turntable, CLAP plugin host, audio tracks, offline renderer.
+  oversampled subtractive synth (24 dB ladder, legato, FM on any oscillator), six-operator FM synth, distortion, drum voices, TB-303, EXS sampler with sinc resampling, scratch turntable, CLAP plugin host, audio tracks, offline renderer, playback device models (`mat translate`).
 * `crates/mat-cli`: the `mat` command.
 * `swift/`: `mat-au`, which renders Audio Unit tracks offline into dry stems.
   Mixing and effects always happen in the Rust engine, so synth tracks and

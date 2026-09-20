@@ -22,6 +22,7 @@ pub mod render;
 pub mod render_cache;
 pub mod sampler;
 pub mod stream;
+pub mod translate;
 pub mod wav;
 
 pub use arrange::{Timeline, arrange, resolve_paths};

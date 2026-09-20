@@ -11,7 +11,7 @@ meter 4/4
 section chorus bars=17-32   # optional, named bar ranges (exported to game engines)
 include "kits/drums.song"   # optional, another file's blocks, read here
 
-instrument <name> <synth|drums|tb303|sampler|clap|au>
+instrument <name> <synth|fm|drums|tb303|sampler|samples|scratch|clap|au>
   ...
 
 pattern <name> [grid=<step>] [bars=<n>]
@@ -147,13 +147,56 @@ instrument lead synth
 | `osc sine fm=… fmratio=… fmenv=…` | FM on any oscillator: a sine modulator at `fmratio` × pitch, `fm` index in radians, `fmenv` extra index that follows the filter envelope (bells, e-pianos, FM bass) |
 | `osc square pw=0.2` | pulse width 0.05–0.95; modulate it with `lfo pw` |
 | `noise <level>` | 0–1 |
-| `filter <lowpass\|highpass\|bandpass>` | `cutoff` Hz (`1.2k` works), `res` 0–1, `env` octaves of filter-envelope sweep, `keytrack` 0–1, `drive` 0–1. Several `filter` lines chain in series; a line with the mode of an existing one replaces that stage (that's how you override a preset's filter); `filter off` removes them all |
+| `filter <lowpass\|highpass\|bandpass>` | `cutoff` Hz (`1.2k` works), `res` 0–1, `env` octaves of filter-envelope sweep, `keytrack` 0–1, `drive` 0–1, `slope` 12 or 24. `slope=24` on a lowpass is a four-pole ladder that saturates in its loop: steeper, rounder, and it thickens instead of ringing thin as the resonance comes up — the filter for basses, leads and polysynth stabs. Several `filter` lines chain in series; a line with the mode of an existing one replaces that stage (that's how you override a preset's filter); `filter off` removes them all |
 | `amp` / `fenv` | `attack` `decay` `release` in seconds (or `ms`), `sustain` 0–1 |
 | `vibrato` | `rate` Hz, `depth` cents, `delay` seconds |
 | `lfo <filter\|pitch\|pan\|amp\|width\|pw\|fm>` | `rate` Hz, `depth` (filter: octaves, pitch: cents, pw: 0–0.45, fm: radians, others 0–1), `fade` seconds, `phase` 0–1 (random per note if omitted); one line per LFO |
 | `glide <time>` | portamento from the previous note's pitch |
+| `legato` | notes that follow one another without a rest are one phrase: the envelopes, the vibrato and the LFOs carry on instead of starting again, and each note hands over to the next in 12 ms. Write a rest (or shorten a note) where the line should breathe. For single lines — leads and basses; with `glide` it slurs like a mono synth |
 | `penv depth=12 decay=80ms` | pitch envelope: starts `depth` semitones away and decays to the note |
-| `drift <cents>` | random detune per note, like drifting analog oscillators |
+| `drift <cents>` | random detune per note, like drifting analog oscillators; each oscillator also wanders slowly by up to a third of it, so held chords never beat the same way twice |
+
+A voice is rendered at twice the sample rate and brought down through a
+linear-phase halfband filter, so what the oscillators, FM, `drive` and the
+ladder put above the band is removed instead of folding back as aliasing.
+
+### `fm`: FM synthesizer
+
+```
+instrument ep fm
+  op 1 ratio=1  level=0.95 decay=2.2 sustain=0 release=0.35          # a carrier: it sounds
+  op 2 ratio=1  level=0.66 vel=0.8 decay=1.6 sustain=0 into=1        # a modulator: it brightens op 1
+  op 3 ratio=1  level=0.9  detune=5 decay=1.8 sustain=0 release=0.35
+  op 4 ratio=14 level=0.6  vel=1 keyscale=1 decay=0.25 sustain=0 into=3   # the tine
+  stereo 6
+  vibrato rate=5 depth=8 delay=0.3
+```
+
+The digital sound of the 80s — electric pianos, bells, mallets, rubber and
+slap basses, brass, glassy plucks — which no filter makes. Up to six sine
+operators, numbered from 1, each with its own envelope. An operator without
+`into` is a **carrier** and is heard; `into=<n>` makes it a **modulator** that
+bends the phase of operator n, which must have a lower number (so there are no
+loops; `feedback` is an operator modulating itself, towards a saw and then
+noise). The timbre is the modulators' envelopes: a modulator that decays
+quickly is a bright attack on a plain body.
+
+| Option | |
+|---|---|
+| `ratio` | frequency as a multiple of the note: whole numbers are harmonic (1, 2, 3), others are bells (3.5, 7.07), high ones are tines and clicks (14) |
+| `fixed` | a fixed frequency in Hz instead, for noises and formants |
+| `detune` | cents; detune two carriers against each other for warmth |
+| `level` | 0–1 in steps of 6 dB per 0.125. A carrier's loudness; a modulator's depth: 0.5 is a hint, 0.65 warm, 0.75 bright, 0.85 harsh, 1 is 4π radians |
+| `vel` | how much of the level a soft note loses, 0–1. High on modulators, so playing harder is brighter — the heart of an FM sound |
+| `keyscale` | level lost per octave above C4 (1 = 6 dB), so high notes do not turn shrill |
+| `feedback` | 0–1 |
+| `attack` `decay` `sustain` `release` | the operator's envelope, as `amp` on a synth |
+
+On the instrument: `vibrato`, `penv` and `drift` as on a synth, and `stereo
+<cents>`, which detunes the left side against the right for width. `mat presets`
+has the classics: `dx-epiano`, `dx-bass`, `dx-slap`, `dx-bell`, `dx-marimba`,
+`dx-brass`, `dx-lead`, `dx-organ`, `dx-pluck`. An `op` line on a preset changes
+only what it names: `op 2 level=0.75` makes `dx-epiano` brighter.
 
 ### `drums`: synthesized drum kit
 
@@ -321,6 +364,7 @@ note sounds the same however the rest of the song is edited, and changing a
 ```
   eq lowcut=150 low=-2 lowfreq=200 mid=+1 midfreq=1k high=+3 highfreq=6k highcut=16k
   comp threshold=-12 ratio=4 attack=5ms release=120ms makeup=3 mode=feedback
+  distortion drive=0.6 mode=soft tone=5k bits=12 rate=22k mix=1 level=0
   chorus mix=0.5 rate=0.7 depth=4ms
   phaser rate=0.3 depth=0.7 stages=6 feedback=0.4 mix=0.5
   sidechain drums depth=0.8 attack=5ms release=250ms on=kick
@@ -337,10 +381,23 @@ A sweep moves through its bars and then holds the end value.
 
 `sidechain <track>` ducks this track on every hit of another track: the kick
 if that track has one, or the drum named with `on=`. A muted track still triggers,
-so a silent "ghost kick" track works too. The order is EQ, compressor, chorus, phaser, ducking,
+so a silent "ghost kick" track works too. The order is EQ, compressor, distortion, chorus, phaser, ducking,
 then gain, pan and the sends. `comp` on a track is the same compressor as on the
 master; `mode=feedback` detects after the gain stage (gentler, pumps musically),
 the default is feedforward.
+
+`distortion` bends the whole track through one waveshaper, so the notes of a
+chord grind against each other — which a synth's `filter drive=`, working on
+each voice alone, never does. `drive` 0–1 is how hard the track is pushed into
+it (0–36 dB; the output comes down to match, so more drive is more dirt, not
+more level — trim with `level` in dB). `mode`: `soft` (tanh, tape and tube),
+`hard` (clipping), `fold` (wavefolding, metallic), `fuzz` (asymmetric, even
+harmonics). The shaper runs at four times the sample rate, so it does not
+alias. `tone` is a lowpass after it (default 6k, `tone=off` for none). `bits`
+(2–16) and `rate` (Hz) are a crusher for the grit of an old sampler: `bits=12
+rate=26k` is an SP-1200. How much a track distorts depends on how loud it
+arrives, so set the instrument's level first. Put an `eq lowcut=` in front to
+keep bass notes from turning a chord to mud.
 
 ### Audio tracks
 

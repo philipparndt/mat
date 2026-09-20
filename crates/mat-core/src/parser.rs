@@ -547,6 +547,10 @@ impl Parser {
             },
             Some("au") => InstrumentKind::AudioUnit(self.au_body(block)),
             Some("tb303") => InstrumentKind::Tb303(self.tb303_body(block)),
+            Some("fm") => match self.fm_body(block) {
+                Some(def) => InstrumentKind::Fm(def),
+                None => return,
+            },
             Some("clap") => match self.clap_body(block) {
                 Some(def) => InstrumentKind::Clap(def),
                 None => return,
@@ -555,7 +559,7 @@ impl Parser {
                 self.err_hint(
                     kind_tok.unwrap().span,
                     format!("unknown instrument type '{other}'"),
-                    "expected one of: synth, drums, sampler, samples, scratch, clap, tb303, au",
+                    "expected one of: synth, fm, drums, sampler, samples, scratch, clap, tb303, au",
                 );
                 return;
             }
@@ -655,7 +659,13 @@ impl Parser {
                             "env" => set(&mut f.env_octaves, self.value(tok, val, -10.0, 10.0)),
                             "keytrack" => set(&mut f.keytrack, self.value(tok, val, 0.0, 1.0)),
                             "drive" => set(&mut f.drive, self.value(tok, val, 0.0, 1.0)),
-                            _ => self.unknown_option(tok, key, "filter", &["cutoff", "res", "env", "keytrack", "drive"]),
+                            "slope" => match val {
+                                "12" => f.slope = 12,
+                                "24" if mode == FilterMode::Lowpass => f.slope = 24,
+                                "24" => self.err_hint(tok.span, "slope=24 is a lowpass ladder", "use it on `filter lowpass`, or chain two filters of this mode"),
+                                _ => self.err_hint(tok.span, format!("unknown filter slope '{val}'"), "slope=12 (default) or slope=24 (ladder, lowpass only)"),
+                            },
+                            _ => self.unknown_option(tok, key, "filter", &["cutoff", "res", "env", "keytrack", "drive", "slope"]),
                         }
                     }
                     match existing {
@@ -714,6 +724,10 @@ impl Parser {
                     }
                     self.extra_tokens(line, 2);
                 }
+                "legato" => {
+                    def.legato = true;
+                    self.extra_tokens(line, 1);
+                }
                 "glide" => {
                     if let Some(t) = self.arg(line, 1, "glide time such as 80ms") {
                         set(&mut def.glide, self.seconds(t, &t.text));
@@ -743,7 +757,7 @@ impl Parser {
                     }
                 }
                 other => {
-                    const KW: &[&str] = &["osc", "noise", "filter", "amp", "fenv", "vibrato", "lfo", "drift", "glide", "penv"];
+                    const KW: &[&str] = &["osc", "noise", "filter", "amp", "fenv", "vibrato", "lfo", "drift", "glide", "legato", "penv"];
                     self.unknown_keyword(kw, other, "synth instruments", KW);
                 }
             }
@@ -1012,6 +1026,97 @@ impl Parser {
         }
         if def.load.is_empty() {
             self.err_hint(block.header.tokens[1].span, "sampler instrument has no file", "add an indented line: load \"logic:01 Acoustic Pianos/Steinway Grand Piano 2.exs\"");
+            return None;
+        }
+        Some(def)
+    }
+
+    /// `op <n> ratio= level= into=<m> …`: operators are numbered from 1, and
+    /// one may only modulate a lower-numbered one, so there are no loops but
+    /// `feedback`. An `op` line for a number that is there already (from a
+    /// preset) changes only what it names.
+    fn fm_body(&mut self, block: &Block) -> Option<FmDef> {
+        const MAX_OPS: usize = 6;
+        let mut def = FmDef::default();
+        let mut ops: Vec<Option<FmOperator>> = Vec::new();
+        for line in &block.body {
+            let kw = &line.tokens[0];
+            match kw.text.as_str() {
+                "op" => {
+                    let Some(nt) = self.arg(line, 1, "operator number") else { continue };
+                    let Some(n) = self.value::<f64>(nt, &nt.text, 1.0, MAX_OPS as f64).map(|v| v.round() as usize) else { continue };
+                    if ops.len() < n {
+                        ops.resize(n, None);
+                    }
+                    let mut op = ops[n - 1].take().unwrap_or_default();
+                    for (key, val, tok) in self.options(line, 2) {
+                        match key {
+                            "ratio" => {
+                                set(&mut op.ratio, self.value(tok, val, 0.01, 64.0));
+                                op.fixed_hz = None;
+                            }
+                            "fixed" => op.fixed_hz = self.hz(tok, val).or(op.fixed_hz),
+                            "detune" => set(&mut op.detune_cents, self.value(tok, val, -100.0, 100.0)),
+                            "level" => set(&mut op.level, self.value(tok, val, 0.0, 1.0)),
+                            "vel" | "velocity" => set(&mut op.velocity, self.value(tok, val, 0.0, 1.0)),
+                            "keyscale" => set(&mut op.keyscale, self.value(tok, val, 0.0, 4.0)),
+                            "feedback" => set(&mut op.feedback, self.value(tok, val, 0.0, 1.0)),
+                            "attack" | "a" => set(&mut op.env.attack, self.seconds(tok, val)),
+                            "decay" | "d" => set(&mut op.env.decay, self.seconds(tok, val)),
+                            "sustain" | "s" => set(&mut op.env.sustain, self.value(tok, val, 0.0, 1.0)),
+                            "release" | "r" => set(&mut op.env.release, self.seconds(tok, val)),
+                            "into" => match val {
+                                "out" => op.into = None,
+                                _ => match self.value::<f64>(tok, val, 1.0, MAX_OPS as f64).map(|v| v.round() as usize) {
+                                    Some(target) if target < n => op.into = Some(target - 1),
+                                    Some(_) => self.err_hint(tok.span, format!("op {n} cannot modulate op {val}"), "an operator modulates a lower-numbered one: into=1 on op 2; use feedback= for an operator that modulates itself"),
+                                    None => {}
+                                },
+                            },
+                            _ => self.unknown_option(tok, key, "op", &["ratio", "fixed", "detune", "level", "vel", "keyscale", "feedback", "attack", "decay", "sustain", "release", "into"]),
+                        }
+                    }
+                    ops[n - 1] = Some(op);
+                }
+                "vibrato" => {
+                    for (key, val, tok) in self.options(line, 1) {
+                        let v = &mut def.vibrato;
+                        match key {
+                            "rate" => set(&mut v.rate_hz, self.value(tok, val, 0.0, 30.0)),
+                            "depth" => set(&mut v.depth_cents, self.value(tok, val, 0.0, 200.0)),
+                            "delay" => set(&mut v.delay, self.seconds(tok, val)),
+                            _ => self.unknown_option(tok, key, "vibrato", &["rate", "depth", "delay"]),
+                        }
+                    }
+                }
+                "penv" => {
+                    let (mut depth, mut decay) = (12.0f32, 0.08f32);
+                    for (key, val, tok) in self.options(line, 1) {
+                        match key {
+                            "depth" => set(&mut depth, self.value(tok, val, -48.0, 48.0)),
+                            "decay" => set(&mut decay, self.seconds(tok, val)),
+                            _ => self.unknown_option(tok, key, "penv", &["depth", "decay"]),
+                        }
+                    }
+                    def.pitch_env = Some((depth, decay));
+                }
+                "drift" | "stereo" => {
+                    if let Some(t) = self.arg(line, 1, "cents") {
+                        let target = if kw.text == "drift" { &mut def.drift_cents } else { &mut def.stereo_cents };
+                        set(target, self.value(t, &t.text, 0.0, 100.0));
+                    }
+                    self.extra_tokens(line, 2);
+                }
+                other => self.unknown_keyword(kw, other, "fm instruments", &["op", "vibrato", "penv", "drift", "stereo"]),
+            }
+        }
+        if let Some(missing) = ops.iter().position(Option::is_none) {
+            self.err_hint(block.header.tokens[1].span, format!("fm instrument has an op {} but no op {}", ops.len(), missing + 1), "number the operators from 1 without gaps");
+            return None;
+        }
+        def.operators = ops.into_iter().flatten().collect();
+        if !def.operators.iter().any(|o| o.into.is_none()) {
+            self.err_hint(block.header.tokens[1].span, "fm instrument has no carrier", "add lines like: op 1 ratio=1 level=1   and   op 2 ratio=2 level=0.7 into=1");
             return None;
         }
         Some(def)
@@ -1451,6 +1556,7 @@ impl Parser {
             seed: None,
             comp: None,
             phaser: None,
+            distortion: None,
             layer: None,
             eq: None,
             chorus: None,
@@ -1606,6 +1712,31 @@ impl Parser {
                 }
                 "eq" => track.eq = Some(self.eq_options(line)),
                 "comp" => track.comp = self.comp_options(line),
+                "distortion" => {
+                    let mut d = DistortionSettings::default();
+                    for (key, val, tok) in self.options(line, 1) {
+                        match key {
+                            "drive" => set(&mut d.drive, self.value(tok, val, 0.0, 1.0)),
+                            "mode" => match val {
+                                "soft" => d.mode = DistortionMode::Soft,
+                                "hard" => d.mode = DistortionMode::Hard,
+                                "fold" => d.mode = DistortionMode::Fold,
+                                "fuzz" => d.mode = DistortionMode::Fuzz,
+                                _ => self.err_hint(tok.span, format!("unknown distortion mode '{val}'"), "mode=soft (default), hard, fold or fuzz"),
+                            },
+                            "tone" => match val {
+                                "off" => d.tone_hz = 0.0,
+                                _ => set(&mut d.tone_hz, self.hz(tok, val)),
+                            },
+                            "bits" => set(&mut d.bits, self.value::<f64>(tok, val, 2.0, 16.0).map(|v| v.round() as u32)),
+                            "rate" => set(&mut d.rate_hz, self.hz_up_to(tok, val, 48_000.0)),
+                            "mix" => set(&mut d.mix, self.value(tok, val, 0.0, 1.0)),
+                            "level" => set(&mut d.level_db, self.db(tok, val)),
+                            _ => self.unknown_option(tok, key, "distortion", &["drive", "mode", "tone", "bits", "rate", "mix", "level"]),
+                        }
+                    }
+                    track.distortion = Some(d);
+                }
                 "phaser" => {
                     let mut ph = PhaserSettings { rate_hz: 0.3, depth: 0.7, stages: 6, feedback: 0.4, mix: 0.5 };
                     for (key, val, tok) in self.options(line, 1) {
@@ -1727,7 +1858,7 @@ impl Parser {
                     kw,
                     other,
                     "tracks",
-                    &["instrument", "audio", "layer", "gain", "pan", "reverb", "delay", "eq", "comp", "chorus", "phaser", "sidechain", "sweep", "swing", "humanize", "seed", "mute", "play", "rest", "at", "repeat"],
+                    &["instrument", "audio", "layer", "gain", "pan", "reverb", "delay", "eq", "comp", "distortion", "chorus", "phaser", "sidechain", "sweep", "swing", "humanize", "seed", "mute", "play", "rest", "at", "repeat"],
                 ),
             }
         }
@@ -1975,12 +2106,17 @@ impl Parser {
     }
 
     fn hz(&mut self, tok: &Token, text: &str) -> Option<f32> {
+        self.hz_up_to(tok, text, 24_000.0)
+    }
+
+    /// A frequency up to `max` Hz: a sample rate may be above what can be heard.
+    fn hz_up_to(&mut self, tok: &Token, text: &str, max: f64) -> Option<f32> {
         let lower = text.to_ascii_lowercase();
         let lower = lower.strip_suffix("hz").unwrap_or(&lower);
         if let Some(k) = lower.strip_suffix('k') {
-            return self.value::<f32>(tok, k, 0.01, 24.0).map(|v| v * 1000.0);
+            return self.value::<f32>(tok, k, 0.01, max / 1000.0).map(|v| v * 1000.0);
         }
-        self.value(tok, lower, 10.0, 24_000.0)
+        self.value(tok, lower, 10.0, max)
     }
 }
 

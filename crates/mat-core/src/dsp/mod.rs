@@ -3,6 +3,7 @@
 pub mod biquad;
 pub mod chorus;
 pub mod delay;
+pub mod distortion;
 pub mod dynamics;
 pub mod envelope;
 pub mod filter;

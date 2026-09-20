@@ -36,6 +36,20 @@ impl Envelope {
         }
     }
 
+    /// An envelope that has been held for `seconds` already: where a legato
+    /// note picks up the phrase's envelope instead of starting its own.
+    pub fn held_for(adsr: &Adsr, seconds: f32, sample_rate: f32) -> Self {
+        let mut env = Self::new(adsr, sample_rate);
+        let attack = adsr.attack.max(0.001);
+        if seconds < attack {
+            env.level = seconds / attack;
+        } else {
+            env.stage = Stage::Decay;
+            env.level = env.sustain + (1.0 - env.sustain) * env.decay_coef.powf((seconds - attack) * sample_rate);
+        }
+        env
+    }
+
     pub fn release(&mut self) {
         if self.stage != Stage::Done {
             self.stage = Stage::Release;

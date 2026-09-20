@@ -350,3 +350,217 @@ preset organic-kit samples "Techno kit with organic percussion on top (CC0): woo
   crash   "samples:sonic-pi/drum_splash_hard.wav"   gain=-11
   amp release=40ms
   velocity 14
+
+# Orchestral and Latin sounds from VSCO 2 CE (CC0, assets/samples/vsco).
+
+preset strings samples "String sections, vibrato sustain, looped (VSCO 2 CE, CC0); distort them for freestyle riffs"
+  note C2  "samples:vsco/strings-sus-C2.wav"     keys=C1-D2 loop=1.2s-3.6s
+  note E2  "samples:vsco/strings-sus-E2.wav"     keys=D#2-F2 loop=1.2s-3.6s
+  note G2  "samples:vsco/strings-sus-G2.wav"     keys=F#2-A2 loop=1.2s-3.6s
+  note B2  "samples:vsco/strings-sus-B2.wav"     keys=A#2-C3 loop=1.2s-3.6s
+  note D3  "samples:vsco/strings-sus-D3.wav"     keys=C#3-D#3 loop=1.2s-3.6s
+  note F3  "samples:vsco/strings-sus-F3.wav"     keys=E3-F#3 loop=1.2s-3.6s
+  note G3  "samples:vsco/strings-sus-G3.wav"     keys=G3-G#3 loop=1.2s-3.6s
+  note A3  "samples:vsco/strings-sus-A3.wav"     keys=A3-A#3 loop=1.2s-3.6s
+  note B3  "samples:vsco/strings-sus-B3.wav"     keys=B3-C4 loop=1.2s-3.6s
+  note D4  "samples:vsco/strings-sus-D4.wav"     keys=C#4-E4 loop=1.2s-3.6s
+  note F#4 "samples:vsco/strings-sus-Fs4.wav"    keys=F4-G4 loop=1.2s-3.6s
+  note A4  "samples:vsco/strings-sus-A4.wav"     keys=G#4-A#4 loop=1.2s-3.6s
+  note C5  "samples:vsco/strings-sus-C5.wav"     keys=B4-D5 loop=1.2s-3.6s
+  note E5  "samples:vsco/strings-sus-E5.wav"     keys=D#5-F5 loop=1.2s-3.6s
+  note G5  "samples:vsco/strings-sus-G5.wav"     keys=F#5-A5 loop=1.2s-3.6s
+  note B5  "samples:vsco/strings-sus-B5.wav"     keys=A#5-C6 loop=1.2s-3.6s
+  note D6  "samples:vsco/strings-sus-D6.wav"     keys=C#6-C7 loop=1.2s-3.6s
+  amp attack=20ms release=0.35
+  velocity 14
+
+preset strings-short samples "String sections, spiccato (VSCO 2 CE, CC0)"
+  note C2  "samples:vsco/strings-spic-C2.wav"    keys=C1-D2
+  note E2  "samples:vsco/strings-spic-E2.wav"    keys=D#2-F2
+  note G2  "samples:vsco/strings-spic-G2.wav"    keys=F#2-A2
+  note B2  "samples:vsco/strings-spic-B2.wav"    keys=A#2-C3
+  note D3  "samples:vsco/strings-spic-D3.wav"    keys=C#3-D#3
+  note F3  "samples:vsco/strings-spic-F3.wav"    keys=E3-F#3
+  note G3  "samples:vsco/strings-spic-G3.wav"    keys=G3-G#3
+  note A3  "samples:vsco/strings-spic-A3.wav"    keys=A3-A#3
+  note B3  "samples:vsco/strings-spic-B3.wav"    keys=B3-C4
+  note D4  "samples:vsco/strings-spic-D4.wav"    keys=C#4-E4
+  note F#4 "samples:vsco/strings-spic-Fs4.wav"   keys=F4-G4
+  note A4  "samples:vsco/strings-spic-A4.wav"    keys=G#4-A#4
+  note C5  "samples:vsco/strings-spic-C5.wav"    keys=B4-D5
+  note E5  "samples:vsco/strings-spic-E5.wav"    keys=D#5-F5
+  note G5  "samples:vsco/strings-spic-G5.wav"    keys=F#5-A5
+  note B5  "samples:vsco/strings-spic-B5.wav"    keys=A#5-C6
+  note D6  "samples:vsco/strings-spic-D6.wav"    keys=C#6-C7
+  amp release=0.3
+  velocity 16
+
+preset trumpet-stab samples "Trumpet, staccato (VSCO 2 CE, CC0)"
+  note F3  "samples:vsco/trumpet-stac-F3.wav"    keys=C3-G3
+  note A3  "samples:vsco/trumpet-stac-A3.wav"    keys=G#3-A#3
+  note C4  "samples:vsco/trumpet-stac-C4.wav"    keys=B3-C#4
+  note D#4 "samples:vsco/trumpet-stac-Ds4.wav"   keys=D4-E4
+  note F4  "samples:vsco/trumpet-stac-F4.wav"    keys=F4-F#4
+  note G4  "samples:vsco/trumpet-stac-G4.wav"    keys=G4-G#4
+  note A#4 "samples:vsco/trumpet-stac-As4.wav"   keys=A4-C5
+  note D5  "samples:vsco/trumpet-stac-D5.wav"    keys=C#5-D#5
+  note F5  "samples:vsco/trumpet-stac-F5.wav"    keys=E5-G5
+  note A5  "samples:vsco/trumpet-stac-A5.wav"    keys=G#5-A#5
+  note C6  "samples:vsco/trumpet-stac-C6.wav"    keys=B5-G6
+  amp release=0.2
+  velocity 14
+
+preset trombone-stab samples "Tenor trombone, staccato (VSCO 2 CE, CC0)"
+  note A#1 "samples:vsco/trombone-stac-As1.wav"  keys=A#1-C#2
+  note F2  "samples:vsco/trombone-stac-F2.wav"   keys=D2-G2
+  note A#2 "samples:vsco/trombone-stac-As2.wav"  keys=G#2-C#3
+  note F3  "samples:vsco/trombone-stac-F3.wav"   keys=D3-G3
+  note A#3 "samples:vsco/trombone-stac-As3.wav"  keys=G#3-C4
+  note D4  "samples:vsco/trombone-stac-D4.wav"   keys=C#4-D#4
+  note F4  "samples:vsco/trombone-stac-F4.wav"   keys=E4-A#4
+  amp release=0.2
+  velocity 14
+
+preset orch-hit samples "Orchestra hit: strings, brass and timpani in octaves (rendered with mat from VSCO 2 CE, CC0)"
+  note C3 "samples:mat/orch-hit.wav" keys=C1-C6
+  amp release=0.3
+  velocity 12
+
+preset latin-kit samples "Congas, bongos, claves, cowbell, guiro (VSCO 2 CE, CC0): kick=tumba, snare=conga, tom=quinto, clap=high bongo, rim=claves, ride=cowbell, hat=conga tap, openhat=guiro, crash=tambourine"
+  kick    "samples:vsco/tumba.wav"            gain=-2
+  snare   "samples:vsco/conga.wav"            gain=-3
+  tom     "samples:vsco/quinto.wav"           gain=-3
+  clap    "samples:vsco/bongo-high.wav"       gain=-4
+  rim     "samples:vsco/claves.wav"           gain=-8
+  ride    "samples:vsco/cowbell.wav"          gain=-10
+  hat     "samples:vsco/conga-tap.wav"        gain=-6
+  openhat "samples:vsco/guiro-fast.wav"       gain=-8
+  crash   "samples:vsco/tambourine.wav"       gain=-8
+  amp release=80ms
+  velocity 14
+
+preset orchestral-kit samples "Concert percussion (VSCO 2 CE, CC0): kick=bass drum, snare, tom=timpani, rim=claves, hat=muted triangle, openhat=triangle, ride=anvil, crash, clap=tambourine"
+  kick    "samples:vsco/bass-drum.wav"        gain=-2
+  snare   "samples:vsco/snare.wav"            gain=-4
+  tom     "samples:vsco/timpani-3.wav"        gain=-3
+  rim     "samples:vsco/claves.wav"           gain=-8
+  hat     "samples:vsco/triangle-mute.wav"    gain=-10
+  openhat "samples:vsco/triangle.wav"         gain=-12
+  ride    "samples:vsco/anvil.wav"            gain=-10
+  crash   "samples:vsco/crash.wav"            gain=-8
+  clap    "samples:vsco/tambourine.wav"       gain=-8
+  amp release=0.3
+  velocity 14
+
+# FM sounds (`fm` instruments): the digital synths of the 80s. `level` is in
+# steps of 6 dB per 0.125; a modulator's level is how bright it makes its target.
+
+preset dx-epiano fm "FM electric piano: soft body, bright tine that answers to velocity, slightly detuned pair"
+  op 1 ratio=1 level=0.95 vel=0.5 attack=2ms decay=2.2 sustain=0 release=0.35
+  op 2 ratio=1 level=0.66 vel=0.8 keyscale=0.6 decay=1.6 sustain=0 release=0.3 into=1
+  op 3 ratio=1 detune=5 level=0.9 vel=0.5 attack=2ms decay=1.8 sustain=0 release=0.35
+  op 4 ratio=14 level=0.6 vel=1 keyscale=1 decay=0.25 sustain=0 release=0.2 into=3
+  stereo 6
+  drift 2
+
+preset dx-bass fm "FM bass: the punchy, rubbery bass of freestyle and 80s pop"
+  op 1 ratio=1 level=1 vel=0.4 attack=1ms decay=0.9 sustain=0.5 release=0.08
+  op 2 ratio=1 level=0.78 vel=0.9 feedback=0.35 decay=0.22 sustain=0.35 release=0.08 into=1
+  op 3 ratio=0.5 level=0.92 vel=0.3 attack=1ms decay=1.2 sustain=0.6 release=0.08
+  op 4 ratio=3 level=0.6 vel=1 decay=0.06 sustain=0 release=0.05 into=3
+
+preset dx-slap fm "FM slap bass: hard, bright attack that closes fast"
+  op 1 ratio=1 level=1 vel=0.4 attack=1ms decay=0.7 sustain=0.3 release=0.07
+  op 2 ratio=1 level=0.82 vel=1 feedback=0.5 decay=0.12 sustain=0.2 release=0.07 into=1
+  op 3 ratio=5 level=0.7 vel=1 decay=0.04 sustain=0 release=0.04 into=1
+
+preset dx-bell fm "FM tubular bell: inharmonic, long, glassy"
+  op 1 ratio=1 level=0.95 attack=1ms decay=4 sustain=0 release=1.5
+  op 2 ratio=3.5 level=0.72 vel=0.7 decay=3 sustain=0 release=1.5 into=1
+  op 3 ratio=1 detune=7 level=0.85 attack=1ms decay=3 sustain=0 release=1.5
+  op 4 ratio=7.07 level=0.62 vel=0.8 decay=0.9 sustain=0 release=0.8 into=3
+  stereo 8
+
+preset dx-marimba fm "FM marimba / mallet: woody knock, short"
+  op 1 ratio=1 level=1 vel=0.5 attack=1ms decay=0.55 sustain=0 release=0.3
+  op 2 ratio=4 level=0.74 vel=1 keyscale=1 decay=0.09 sustain=0 release=0.07 into=1
+  op 3 ratio=1 detune=-4 level=0.8 attack=1ms decay=0.3 sustain=0 release=0.2
+  op 4 ratio=10 level=0.55 vel=1 keyscale=1.5 decay=0.03 sustain=0 release=0.03 into=3
+
+preset dx-brass fm "FM synth brass: the modulator swells in after the attack"
+  op 1 ratio=1 level=1 vel=0.5 attack=25ms decay=0.6 sustain=0.8 release=0.15
+  op 2 ratio=1 level=0.7 vel=0.9 keyscale=0.5 feedback=0.45 attack=70ms decay=0.5 sustain=0.75 release=0.15 into=1
+  op 3 ratio=1 detune=6 level=0.9 vel=0.5 attack=25ms decay=0.6 sustain=0.8 release=0.15
+  op 4 ratio=2 level=0.6 vel=0.9 keyscale=0.5 attack=50ms decay=0.4 sustain=0.6 release=0.15 into=3
+  stereo 5
+  drift 3
+
+preset dx-lead fm "FM lead: hollow and singing, with a delayed vibrato"
+  op 1 ratio=1 level=1 vel=0.4 attack=8ms decay=0.8 sustain=0.8 release=0.2
+  op 2 ratio=1 level=0.66 vel=0.7 keyscale=0.7 feedback=0.45 attack=5ms decay=0.5 sustain=0.7 release=0.2 into=1
+  op 3 ratio=2 level=0.8 vel=0.5 attack=8ms decay=0.6 sustain=0.5 release=0.2
+  op 4 ratio=3 level=0.5 vel=0.8 keyscale=1 decay=0.3 sustain=0.3 release=0.2 into=3
+  vibrato rate=5.2 depth=10 delay=0.35
+  stereo 3
+
+preset dx-organ fm "FM organ: four drawbars, a click on the key"
+  op 1 ratio=0.5 level=0.9 vel=0.1 attack=2ms decay=0.2 sustain=1 release=0.06
+  op 2 ratio=1 level=0.95 vel=0.1 attack=2ms decay=0.2 sustain=1 release=0.06
+  op 3 ratio=2 level=0.82 vel=0.1 attack=2ms decay=0.2 sustain=1 release=0.06
+  op 4 ratio=3 level=0.78 vel=0.1 feedback=0.2 attack=1ms decay=0.15 sustain=0.7 release=0.06
+  stereo 4
+
+preset dx-pluck fm "FM pluck / clav: bright, tight, good for chord stabs and 16th lines"
+  op 1 ratio=1 level=1 vel=0.5 attack=1ms decay=0.35 sustain=0.1 release=0.12
+  op 2 ratio=2 level=0.76 vel=1 keyscale=0.8 feedback=0.3 decay=0.12 sustain=0.15 release=0.1 into=1
+  op 3 ratio=1 detune=6 level=0.85 vel=0.5 attack=1ms decay=0.3 sustain=0.1 release=0.12
+  op 4 ratio=3 level=0.66 vel=1 keyscale=1 decay=0.08 sustain=0.1 release=0.1 into=3
+  stereo 6
+
+# Analog sounds that use the 24 dB ladder and legato.
+
+preset analog-lead synth "Singing mono lead: ladder filter, legato phrases, glide, late vibrato"
+  osc saw level=0.8
+  osc square pw=0.4 detune=6 level=0.5
+  osc sine octave=-1 level=0.3
+  filter lowpass cutoff=1.9k res=0.3 env=2 keytrack=0.6 slope=24 drive=0.2
+  amp attack=6ms decay=0.6 sustain=0.75 release=0.18
+  fenv attack=4ms decay=0.5 sustain=0.35 release=0.2
+  vibrato rate=5.4 depth=11 delay=0.3
+  glide 45ms
+  legato
+  drift 5
+
+preset poly-stab synth "80s polysynth chord stab: saw and pulse through a snappy ladder"
+  osc saw voices=2 spread=8 level=0.8
+  osc square pw=0.3 octave=1 level=0.3
+  lfo pw rate=0.8 depth=0.12
+  filter lowpass cutoff=900 res=0.3 env=3.2 keytrack=0.5 slope=24
+  amp attack=2ms decay=0.3 sustain=0.15 release=0.14
+  fenv attack=1ms decay=0.16 sustain=0.05 release=0.12
+  drift 5
+
+preset poly-brass synth "Analog synth brass: the filter opens after the attack"
+  osc saw voices=2 spread=10 level=0.8
+  osc saw octave=-1 level=0.4
+  filter lowpass cutoff=500 res=0.2 env=3 keytrack=0.4 slope=24
+  amp attack=15ms decay=0.5 sustain=0.8 release=0.2
+  fenv attack=70ms decay=0.6 sustain=0.5 release=0.2
+  drift 6
+
+preset solid-bass synth "Round analog bass: saw and square into a ladder, short envelope"
+  osc saw level=0.7
+  osc square pw=0.45 octave=-1 level=0.6
+  filter lowpass cutoff=260 res=0.3 env=2.6 keytrack=0.3 slope=24 drive=0.3
+  amp attack=1ms decay=0.25 sustain=0.6 release=0.06
+  fenv attack=1ms decay=0.14 sustain=0.1 release=0.06
+
+preset pwm-strings synth "String machine: slowly moving pulse widths, wide and soft"
+  osc square pw=0.35 voices=3 spread=12 level=0.7
+  osc saw octave=1 voices=2 spread=9 level=0.25
+  lfo pw rate=0.35 depth=0.2
+  lfo pw rate=0.9 depth=0.08
+  filter lowpass cutoff=2.4k res=0.1 keytrack=0.3 slope=24
+  amp attack=0.25 decay=1 sustain=0.85 release=0.6
+  drift 7
+

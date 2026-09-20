@@ -1,3 +1,5 @@
 These samples come from the Sonic Pi project (https://github.com/sonic-pi-net/sonic-pi,
 etc/samples) and are placed in the public domain under Creative Commons 0
 (https://creativecommons.org/publicdomain/zero/1.0/). Converted to 48 kHz WAV.
+All of the library's one-shots are here; its loops (loop_*, arovane_*) and the
+mehackit_* voices are not. Samples longer than 10 s are cut to 10 s.

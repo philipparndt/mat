@@ -52,6 +52,7 @@ use crate::dsp::chorus::Chorus;
 use crate::dsp::delay::PingPongDelay;
 use crate::dsp::dynamics::{Compressor, KeyedCompressor};
 use crate::dsp::limiter::Limiter;
+use crate::dsp::distortion::Distortion;
 use crate::dsp::phaser::Phaser;
 use crate::dsp::quiet::BLOCK;
 use crate::dsp::reverb::PlateReverb;
@@ -149,6 +150,7 @@ pub struct Stream<'a> {
 enum Voices {
     /// A note at a time, in the order the notes are played.
     Synth(crate::model::SynthDef),
+    Fm(crate::model::FmDef),
     Drums(Box<crate::model::DrumKit>),
     Sampler(Box<Prepared>),
     /// A region of a file at a time, in the order the clips are played.
@@ -197,6 +199,7 @@ struct TrackState {
 struct TrackChain {
     eq: Option<EqChain>,
     comp: Option<Compressor>,
+    distortion: Option<Distortion>,
     chorus: Option<Chorus>,
     phaser: Option<Phaser>,
     duck: Option<Duck>,
@@ -213,6 +216,7 @@ impl TrackChain {
         TrackChain {
             eq: track.eq.as_ref().map(|eq| EqChain::new(eq, sr)),
             comp: track.comp.as_ref().map(|c| Compressor::new(c, sr)),
+            distortion: track.distortion.as_ref().map(|d| Distortion::new(d, sr)),
             chorus: track.chorus.as_ref().map(|c| Chorus::new(c, sr)),
             phaser: track.phaser.as_ref().map(|p| Phaser::new(p, sr)),
             duck: track.duck.clone(),
@@ -236,6 +240,9 @@ impl TrackChain {
         }
         if let Some(comp) = &mut self.comp {
             comp.process(left, right);
+        }
+        if let Some(distortion) = &mut self.distortion {
+            distortion.process(left, right);
         }
         if let Some(chorus) = &mut self.chorus {
             chorus.process(left, right);
@@ -575,6 +582,7 @@ impl<'a> Stream<'a> {
                 }
                 state.voices = match &track.instrument {
                     InstrumentKind::Synth(def) => Voices::Synth(def.clone()),
+                    InstrumentKind::Fm(def) => Voices::Fm(def.clone()),
                     InstrumentKind::Drums(kit) => Voices::Drums(Box::new(kit.clone())),
                     InstrumentKind::Sampler(def) => match Sampler::load(std::path::Path::new(&def.load)).and_then(|s| s.prepare(&track.notes, def, sr)) {
                         Ok(prepared) => Voices::Sampler(Box::new(prepared)),
@@ -1122,16 +1130,19 @@ impl TrackState {
                     .par_iter()
                     .enumerate()
                     .map(|(k, note)| {
-                        let i = self.next + k;
-                        // Portamento glides from the last note that started before this one.
-                        let from = if def.glide > 0.0 {
-                            track.notes[..i].iter().rev().find(|p| p.start < note.start - 1e-6).map(|p| p.midi)
-                        } else {
-                            None
-                        };
-                        synth::render_note_from(def, note, from, &track.sweeps, sr, note.seed)
+                        // Portamento and legato: what the note needs to know of its neighbours.
+                        synth::render_note_in(def, note, &synth::NoteContext::of(def, &track.notes, self.next + k), &track.sweeps, sr)
                     })
                     .collect();
+                self.next = until;
+                self.all_rendered = until == track.notes.len();
+            }
+            Voices::Fm(def) => {
+                let mut until = self.next;
+                while until < track.notes.len() && track.notes[until].start * sr as f64 <= horizon {
+                    until += 1;
+                }
+                clips = track.notes[self.next..until].par_iter().map(|note| crate::instruments::fm::render_note(def, note, sr)).collect();
                 self.next = until;
                 self.all_rendered = until == track.notes.len();
             }

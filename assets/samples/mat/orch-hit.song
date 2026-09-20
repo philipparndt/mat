@@ -1,0 +1,44 @@
+title "orch hit"
+tempo 120
+instrument sp preset strings-short
+instrument su preset strings
+instrument tp preset trumpet-stab
+instrument tb preset trombone-stab
+instrument pk preset orchestral-kit
+pattern s
+  [C2 C3 G3 C4 G4 C5 C6]:q r:h. | r:w |
+pattern b
+  [C4 C5]:q r:h. | r:w |
+pattern t
+  [C2 C3]:q r:h. | r:w |
+pattern k
+  kick:q r:h. | r:w |
+track sp
+  instrument sp
+  gain -6
+  reverb 0.25
+  play s
+track su
+  instrument su
+  gain -12
+  reverb 0.25
+  play s
+track tp
+  instrument tp
+  gain -9
+  reverb 0.25
+  play b
+track tb
+  instrument tb
+  gain -8
+  reverb 0.25
+  play t
+track pk
+  instrument pk
+  gain -10
+  reverb 0.2
+  play k
+master
+  reverb size=0.5 decay=0.4 damping=0.5 predelay=5ms
+  saturation 0.3
+  limiter ceiling=-1 release=60ms

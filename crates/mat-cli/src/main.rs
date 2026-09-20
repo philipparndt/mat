@@ -149,8 +149,61 @@ enum Command {
         #[arg(short, long)]
         output: Option<PathBuf>,
     },
+    /// Measure, and hear, how a mix carries to other devices: a Sonos, a car,
+    /// a phone. Takes a song, or a rendered WAV, AIFF or CAF.
+    ///
+    /// Prints where the mix's energy is and what summing left and right costs
+    /// each band, then what every device makes of it: the level of each band
+    /// against the mix, what its bass protection did, what road noise covers,
+    /// and — for a song — which layers sink or vanish. The devices are models,
+    /// close enough to say whether a bass line survives a small speaker.
+    Translate {
+        /// Not needed with --list.
+        #[arg(required_unless_present = "list")]
+        input: Option<PathBuf>,
+        /// The devices to try, comma separated: --to sonos-five,car. All of
+        /// them when not given.
+        #[arg(long, value_delimiter = ',', value_name = "DEVICE")]
+        to: Vec<String>,
+        /// The device you are listening on. What --out writes and --play
+        /// plays is corrected for it: its own colour is taken out so it is
+        /// not heard on top of the simulated device's, and on headphones a
+        /// simulated speaker reaches both ears as it would in a room.
+        #[arg(long, value_name = "DEVICE")]
+        on: Option<String>,
+        /// How loud the devices play: bass protection works when it is loud,
+        /// and road noise covers more when it is quiet.
+        #[arg(long, value_enum, default_value_t = Loudness::Normal)]
+        volume: Loudness,
+        /// Write original.wav and one WAV per device into this folder, all at
+        /// the original's loudness, so that what is compared is the sound.
+        #[arg(short, long, value_name = "DIR")]
+        out: Option<PathBuf>,
+        /// Play the mix in a loop and switch between the devices while it
+        /// plays: type a number or a name and Enter, q to stop.
+        #[arg(long)]
+        play: bool,
+        /// Only these bars of a song, as `mat render --bars`.
+        #[arg(long, value_name = "FROM-TO", value_parser = mat_core::BarRange::parse)]
+        bars: Option<mat_core::BarRange>,
+        /// Also write the measurements as JSON.
+        #[arg(long, value_name = "FILE")]
+        json: Option<PathBuf>,
+        #[arg(long, default_value_t = 48_000)]
+        sample_rate: u32,
+        /// List the devices.
+        #[arg(long)]
+        list: bool,
+    },
     /// Run the language server for .song files over stdin and stdout (for editors).
     Lsp,
+}
+
+#[derive(Clone, Copy, ValueEnum)]
+enum Loudness {
+    Quiet,
+    Normal,
+    Loud,
 }
 
 #[derive(Clone, Copy, ValueEnum)]
@@ -405,6 +458,20 @@ fn run(cli: Cli) -> anyhow::Result<ExitCode> {
                 .context("meter must look like 4/4")?;
             let options = mat_core::import::ImportOptions { name, tempo, bar_quarters: num * 4.0 / den, offset, bars_per_pattern: bars, drums, ignore_velocity, legato, similarity };
             print!("{}", mat_core::import::to_song_text(&notes, &options));
+        }
+        Command::Translate { list: true, .. } => {
+            for d in mat_core::translate::DEVICES {
+                println!("{:<14} {}: {}", d.name, d.title, d.about);
+            }
+        }
+        Command::Translate { input, to, on, volume, out, play, bars, json, sample_rate, .. } => {
+            let input = input.expect("clap wants an input without --list");
+            let volume = match volume {
+                Loudness::Quiet => mat_core::translate::Volume::Quiet,
+                Loudness::Normal => mat_core::translate::Volume::Normal,
+                Loudness::Loud => mat_core::translate::Volume::Loud,
+            };
+            return translate(&input, &to, on.as_deref(), volume, out.as_deref(), play, bars, json.as_deref(), sample_rate);
         }
         Command::Lsp => {
             mat_lsp::run_stdio().map_err(|e| anyhow::anyhow!("{e}"))?;
@@ -861,6 +928,292 @@ fn play(timeline: &Timeline) -> anyhow::Result<()> {
         std::thread::sleep(Duration::from_millis(200));
         Ok(())
     })
+}
+
+fn find_device(name: &str) -> anyhow::Result<&'static mat_core::translate::Device> {
+    mat_core::translate::device(name).with_context(|| format!("no device '{name}' (mat translate --list names them)"))
+}
+
+/// One thing to listen to: the mix, or the mix on a device.
+struct Audition {
+    name: String,
+    audio: mat_core::Audio,
+}
+
+#[allow(clippy::too_many_arguments)]
+fn translate(
+    input: &Path,
+    to: &[String],
+    on: Option<&str>,
+    volume: mat_core::translate::Volume,
+    out: Option<&Path>,
+    play: bool,
+    bars: Option<mat_core::BarRange>,
+    json: Option<&Path>,
+    sample_rate: u32,
+) -> anyhow::Result<ExitCode> {
+    use mat_core::translate as tr;
+
+    let monitor = on.map(find_device).transpose()?;
+    let devices: Vec<&tr::Device> = match to {
+        // Heard on itself a device is the mix, which is there already.
+        [] => tr::DEVICES.iter().filter(|d| Some(d.name) != monitor.map(|m| m.name)).collect(),
+        names => names.iter().map(|n| find_device(n)).collect::<anyhow::Result<_>>()?,
+    };
+    // A song played is rendered at the rate the speakers want.
+    let speakers = play.then(output_device).transpose()?;
+    let sample_rate = speakers.as_ref().map_or(sample_rate, |(_, config)| config.sample_rate);
+
+    let is_song = input.extension().is_some_and(|e| e.eq_ignore_ascii_case("song"));
+    let (mix, layers, title) = if is_song {
+        let Some((mut timeline, _)) = load(input)? else { return Ok(ExitCode::FAILURE) };
+        if let Some(range) = bars {
+            timeline = mat_core::bars::cut(&timeline, range, sample_rate).map_err(anyhow::Error::msg)?;
+        }
+        // The layers through the master's gain curve: they sum to the mix, so
+        // what a device does to one is its share of what it does to the mix.
+        let rendering = render_song(&timeline, sample_rate, true, true, None);
+        (rendering.mix, rendering.layers, timeline.title.clone())
+    } else {
+        if bars.is_some() {
+            bail!("--bars is for a song: an audio file has no bars");
+        }
+        let file = mat_core::sampler::audio_file::AudioFile::open(input).map_err(anyhow::Error::msg)?;
+        let (left, right) = file.read_stereo(0, file.frames as i64).map_err(anyhow::Error::msg)?;
+        let audio = mat_core::Audio { sample_rate: file.sample_rate as u32, left, right };
+        let audio = match &speakers {
+            Some((_, config)) => tr::resample(&audio, config.sample_rate),
+            None => audio,
+        };
+        (audio, Vec::new(), None)
+    };
+    let title = title.unwrap_or_else(|| input.file_stem().unwrap_or_default().to_string_lossy().into_owned());
+
+    let measured = tr::measure(&mix);
+    let layer_loudness: Vec<f32> = layers.iter().map(|l| tr::loudness(&l.audio)).collect();
+    let followed: Vec<tr::Layer> = layers.iter().zip(&layer_loudness).map(|(l, loudness)| tr::Layer { name: &l.layer, audio: &l.audio, loudness: *loudness }).collect();
+    let listen = out.is_some() || play;
+
+    // A device a thread: each is a pass over the whole mix and over every layer.
+    let results: Vec<(tr::DeviceReport, Option<mat_core::Audio>)> = std::thread::scope(|scope| {
+        let handles: Vec<_> = devices
+            .iter()
+            .map(|device| {
+                let (mix, measured, followed) = (&mix, &measured, &followed);
+                scope.spawn(move || {
+                    let radiated = tr::radiate(device, mix, volume);
+                    let report = tr::report(device, measured, &radiated, followed, volume);
+                    (report, listen.then(|| tr::audition(device, &radiated.audio, monitor, volume)))
+                })
+            })
+            .collect();
+        handles.into_iter().map(|h| h.join().expect("a device's thread does not panic")).collect()
+    });
+
+    print_translation(&title, &measured.report, &results, monitor, volume);
+    if let Some(path) = json {
+        let reports: Vec<&tr::DeviceReport> = results.iter().map(|(r, _)| r).collect();
+        let value = serde_json::json!({ "title": title, "on": monitor.map(|m| m.name), "volume": format!("{volume:?}").to_lowercase(), "mix": measured.report, "devices": reports });
+        std::fs::write(path, serde_json::to_string_pretty(&value)?).with_context(|| format!("writing {}", path.display()))?;
+        println!("wrote {}", path.display());
+    }
+    if !listen {
+        return Ok(ExitCode::SUCCESS);
+    }
+
+    // Everything at the mix's loudness, since the louder of two always sounds
+    // the better; then all of it down together until nothing clips.
+    let mut auditions = vec![(Audition { name: "original".into(), audio: mix }, 0.0f32)];
+    for (report, audio) in results {
+        let audio = audio.expect("auditioned when there is something to listen to");
+        auditions.push((Audition { name: report.device.into(), audio }, (-report.loudness_change_lu).clamp(-12.0, 12.0)));
+    }
+    // A device that plays no bass turns a limited master back into peaks, and
+    // would drag everything down a long way: past 6 dB it is left quieter
+    // than the others instead, and said to be.
+    let trim = auditions.iter().map(|(a, gain)| -1.0 - (a.audio.peak_db() + gain)).fold(0.0f32, f32::min).max(-6.0);
+    let auditions: Vec<Audition> = auditions
+        .into_iter()
+        .map(|(mut a, gain)| {
+            let short = (-1.0 - (a.audio.peak_db() + gain + trim)).min(0.0);
+            if short < -0.1 {
+                println!("{} is {:.1} dB under the others: matched, it would clip", a.name, -short);
+            }
+            let gain = mat_core::dsp::db_to_gain(gain + trim + short);
+            a.audio.left.iter_mut().chain(a.audio.right.iter_mut()).for_each(|s| *s *= gain);
+            a
+        })
+        .collect();
+
+    if let Some(dir) = out {
+        std::fs::create_dir_all(dir)?;
+        let encoding = Encoding { format: Format::Wav, depth: BitDepth::Int24, bitrate: 256 };
+        for a in &auditions {
+            let path = dir.join(format!("{}.wav", a.name));
+            write_audio(&path, &a.audio, &encoding).map_err(anyhow::Error::msg).with_context(|| format!("writing {}", path.display()))?;
+        }
+        println!("wrote {} files to {}, at one loudness ({:+.1} dB, so that none clips)", auditions.len(), dir.display(), trim);
+    }
+    if let Some((device, config)) = speakers {
+        play_auditions(auditions, &device, config)?;
+    }
+    Ok(ExitCode::SUCCESS)
+}
+
+fn print_translation(
+    title: &str,
+    mix: &mat_core::translate::MixReport,
+    results: &[(mat_core::translate::DeviceReport, Option<mat_core::Audio>)],
+    monitor: Option<&mat_core::translate::Device>,
+    volume: mat_core::translate::Volume,
+) {
+    println!();
+    println!("{title}: {}, {:.1} LUFS, peak {:.1} dBFS", format_time(mix.seconds), mix.loudness_lufs, mix.peak_db);
+    println!();
+    println!("  {:<9} {:>14} {:>9} {:>6} {:>10} {:>12}", "band", "", "level", "share", "mono loss", "correlation");
+    for b in &mix.bands {
+        println!(
+            "  {:<9} {:>14} {:>6.1} dB {:>5.0}% {:>7.1} dB {:>12.2}",
+            b.name,
+            format!("{:.0}-{:.0} Hz", b.from_hz, b.to_hz),
+            b.level_db,
+            b.share * 100.0,
+            b.mono_loss_db,
+            b.correlation
+        );
+    }
+    for finding in &mix.findings {
+        println!("  ! {finding}");
+    }
+
+    println!();
+    println!("on each device, in dB against the mix (volume {}):", format!("{volume:?}").to_lowercase());
+    print!("  {:<14} {:>8}", "", "loudness");
+    for b in &mix.bands {
+        print!(" {:>8}", b.name);
+    }
+    println!();
+    for (report, _) in results {
+        print!("  {:<14} {:>+8.1}", report.device, report.loudness_change_lu);
+        for change in &report.band_change_db {
+            print!(" {:>+8.1}", change);
+        }
+        println!();
+    }
+
+    if results.iter().any(|(r, _)| !r.layers.is_empty()) {
+        println!();
+        println!("each layer against the rest of the mix, in LU (under zero it sinks, 'gone' is gone):");
+        let names: Vec<&str> = results[0].0.layers.iter().map(|l| l.layer.as_str()).collect();
+        print!("  {:<14}", "");
+        for name in &names {
+            print!(" {:>9}", name.chars().take(9).collect::<String>());
+        }
+        println!();
+        for (report, _) in results {
+            print!("  {:<14}", report.device);
+            for layer in &report.layers {
+                match layer.change_lu <= -40.0 {
+                    true => print!(" {:>9}", "gone"),
+                    false => print!(" {:>+9.1}", layer.against_mix_lu),
+                }
+            }
+            println!();
+        }
+    }
+
+    for (report, _) in results.iter().filter(|(r, _)| !r.findings.is_empty()) {
+        println!();
+        println!("{} ({}):", report.title, report.device);
+        for finding in &report.findings {
+            println!("  ! {finding}");
+        }
+    }
+    if let Some(limit) = monitor.and_then(mat_core::translate::monitor_limit) {
+        println!();
+        println!("note: {limit}");
+    }
+    println!();
+}
+
+fn output_device() -> anyhow::Result<(cpal::Device, cpal::StreamConfig)> {
+    let device = cpal::default_host().default_output_device().context("no audio output device")?;
+    let config = device.default_output_config()?;
+    if config.sample_format() != cpal::SampleFormat::F32 {
+        bail!("unsupported device sample format {:?}", config.sample_format());
+    }
+    Ok((device, config.into()))
+}
+
+/// Plays the auditions in a loop, all at one position, and switches between
+/// them as their numbers or names are typed.
+fn play_auditions(auditions: Vec<Audition>, device: &cpal::Device, config: cpal::StreamConfig) -> anyhow::Result<()> {
+    let channels = config.channels as usize;
+    let sample_rate = config.sample_rate;
+    let names: Vec<String> = auditions.iter().map(|a| a.name.clone()).collect();
+    let frames = auditions.iter().map(|a| a.audio.left.len()).min().unwrap_or(0);
+    if frames == 0 {
+        bail!("nothing to play");
+    }
+    let selected = Arc::new(AtomicUsize::new(0));
+    let position = Arc::new(AtomicUsize::new(0));
+
+    let (chosen, pos) = (selected.clone(), position.clone());
+    // A switch is a 10 ms crossfade, so it does not click.
+    let fade = (sample_rate as usize / 100).max(1);
+    let (mut now, mut before, mut fading) = (0usize, 0usize, 0usize);
+    let stream = device.build_output_stream(
+        config,
+        move |out: &mut [f32], _: &cpal::OutputCallbackInfo| {
+            let mut p = pos.load(Ordering::Relaxed);
+            let wanted = chosen.load(Ordering::Relaxed);
+            if wanted != now {
+                (before, now, fading) = (now, wanted, fade);
+            }
+            for frame in out.chunks_mut(channels) {
+                let old = fading as f32 / fade as f32;
+                let (a, b) = (&auditions[now].audio, &auditions[before].audio);
+                let l = a.left[p] * (1.0 - old) + b.left[p] * old;
+                let r = a.right[p] * (1.0 - old) + b.right[p] * old;
+                for (c, s) in frame.iter_mut().enumerate() {
+                    *s = if c % 2 == 0 { l } else { r };
+                }
+                fading = fading.saturating_sub(1);
+                p = (p + 1) % frames;
+            }
+            pos.store(p, Ordering::Relaxed);
+        },
+        |err| eprintln!("audio stream error: {err}"),
+        None,
+    )?;
+    stream.play()?;
+
+    for (i, name) in names.iter().enumerate() {
+        println!("  {i:>2}  {name}");
+    }
+    println!("playing in a loop: a number or a name and Enter to switch, q to stop");
+    let mut line = String::new();
+    loop {
+        let at = position.load(Ordering::Relaxed) as f64 / sample_rate as f64;
+        print!("[{} at {}] > ", names[selected.load(Ordering::Relaxed)], format_time(at));
+        use std::io::Write;
+        let _ = std::io::stdout().flush();
+        line.clear();
+        if std::io::stdin().read_line(&mut line)? == 0 {
+            break;
+        }
+        let word = line.trim();
+        if word == "q" {
+            break;
+        }
+        let found = word.parse::<usize>().ok().filter(|i| *i < names.len()).or_else(|| names.iter().position(|n| n.starts_with(word) && !word.is_empty()));
+        match found {
+            Some(i) => selected.store(i, Ordering::Relaxed),
+            None if word.is_empty() => {}
+            None => println!("no '{word}'"),
+        }
+    }
+    Ok(())
 }
 
 fn format_time(seconds: f64) -> String {
