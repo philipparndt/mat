@@ -2,3 +2,5 @@
 *.wav
 # Private songs that must never be committed
 /private/
+
+/examples/ember/
