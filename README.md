@@ -14,6 +14,19 @@ pattern verse
 
 See [docs/FORMAT.md](docs/FORMAT.md) for the language.
 
+## Install
+
+```sh
+brew tap philipparndt/mat
+brew trust philipparndt/mat
+brew install mat
+```
+
+`mat` and the Audio Unit host `mat-au`, for Apple silicon and Intel, signed and
+notarised, with the sample library `samples:` points at. From a checkout,
+`make install` builds `mat` into `~/.cargo/bin` instead, and it uses the
+checkout's library.
+
 ## Usage
 
 ```sh
@@ -163,3 +176,20 @@ the loops will not be seamless.
 FLAC and M4A are written by macOS `afconvert` (Apple's encoders).
 
 `private/` is gitignored and meant for songs that must not be committed.
+
+## Releasing
+
+```sh
+make sign-check                        # the Developer ID and the notarytool profile are there
+make release                           # dist/mat-<version>.tar.gz, signed and notarised; nothing published
+make release-publish VERSION=0.2.0     # the whole of it: version, tag, build, notarise, GitHub release, tap
+make tap VERSION=0.2.0                 # just point philipparndt/homebrew-mat at a published release again
+make tap VERSION=0.2.0 TAP_PRINT=1     # show the formula, push nothing
+```
+
+`release-publish` wants `docs/release-notes-<version>.md` and a clean tree
+before it does anything. It stamps the version into `Cargo.toml`, tags, builds
+universal binaries from the tag, signs them with the Developer ID and the
+hardened runtime, has Apple notarise them (and checks the tickets are served),
+uploads the archive and its checksum, and then writes `Formula/mat.rb` in the
+tap. The steps and why they are in that order are in `scripts/`.

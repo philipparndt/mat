@@ -510,13 +510,20 @@ fn kind_label(kind: &InstrumentKind) -> &'static str {
 /// `mat` found no library, warned `cannot open assets/samples/...` for every
 /// voice of the kit, and wrote a render whose drums peaked at -23 dBFS instead
 /// of -0.3 — a successful render, as far as anyone watching the exit code knew.
+///
+/// A release (the Homebrew formula) is a fourth place: `bin/mat` with the
+/// library in `share/mat/samples` under the same prefix. That is looked for
+/// through the binary's real path, since `/opt/homebrew/bin/mat` is a link
+/// into the Cellar, and before the checkout it was built from — which exists
+/// on the machine that cut the release, and is the development copy there.
 fn sample_library() -> std::path::PathBuf {
-    let beside_binary = std::env::current_exe()
-        .ok()
-        .and_then(|e| e.parent().and_then(Path::parent).and_then(Path::parent).map(|r| r.join("assets/samples")));
+    let exe = std::env::current_exe().ok();
+    let beside_binary = exe.as_ref().and_then(|e| e.parent().and_then(Path::parent).and_then(Path::parent).map(|r| r.join("assets/samples")));
+    let installed = exe.and_then(|e| e.canonicalize().ok()).and_then(|e| e.parent().and_then(Path::parent).map(|p| p.join("share/mat/samples")));
     let built_from = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../assets/samples");
     let found = beside_binary
         .into_iter()
+        .chain(installed)
         .chain(std::iter::once(built_from))
         .find(|p| p.is_dir())
         .unwrap_or_else(|| Path::new("assets/samples").to_path_buf());

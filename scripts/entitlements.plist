@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!--
+	mat loads CLAP plugins (Surge XT) and mat-au loads Audio Unit v2 plugins
+	into its own process. Under the hardened runtime a process only maps code
+	signed by its own team, so without this every plugin — signed by somebody
+	else, or not at all — is refused at dlopen.
+	-->
+	<key>com.apple.security.cs.disable-library-validation</key>
+	<true/>
+</dict>
+</plist>
