@@ -288,26 +288,60 @@ fn write_zip(plan: &Plan, output: &Path) -> std::io::Result<Packed> {
     let stored = SimpleFileOptions::default().compression_method(zip::CompressionMethod::Stored).large_file(true);
     let mut bytes = 0;
     let folder = &plan.folder;
-    zip.start_file(format!("{folder}/README.txt"), deflated)?;
+    // Dated, or every entry unpacks as written on 1 January 1980: a copied
+    // file by when it was last changed, and what the pack writes by now.
+    let now = zip_time(std::time::SystemTime::now());
+    let dated = |options: SimpleFileOptions, time: Option<zip::DateTime>| match time {
+        Some(time) => options.last_modified_time(time),
+        None => options,
+    };
+    zip.start_file(format!("{folder}/README.txt"), dated(deflated, now))?;
     zip.write_all(readme(plan).as_bytes())?;
     for (place, entry) in &plan.files {
         let name = format!("{folder}/{place}");
         match entry {
             Entry::Text(text) => {
-                zip.start_file(name, deflated)?;
+                zip.start_file(name, dated(deflated, now))?;
                 zip.write_all(text.as_bytes())?;
                 bytes += text.len() as u64;
             }
             Entry::Copy(from) => {
                 let packed = from.extension().and_then(|e| e.to_str()).map(str::to_lowercase);
                 let options = if matches!(packed.as_deref(), Some("m4a" | "mp3" | "flac" | "ogg" | "aac" | "zip")) { stored } else { deflated };
-                zip.start_file(name, options)?;
+                let changed = std::fs::metadata(from).and_then(|m| m.modified()).ok().and_then(zip_time);
+                zip.start_file(name, dated(options, changed))?;
                 bytes += std::io::copy(&mut std::fs::File::open(from)?, &mut zip)?;
             }
         }
     }
     zip.finish()?.flush()?;
     Ok(Packed { files: plan.files.len(), bytes, rewritten: plan.rewritten, needs: plan.needs.iter().cloned().collect() })
+}
+
+/// A time as a zip entry's, in UTC: a zip stores the date and the time of day
+/// as they are written, and has no zone. None before 1980, which it cannot say.
+fn zip_time(time: std::time::SystemTime) -> Option<zip::DateTime> {
+    let seconds = time.duration_since(std::time::UNIX_EPOCH).ok()?.as_secs() as i64;
+    let (days, of_day) = (seconds.div_euclid(86_400), seconds.rem_euclid(86_400));
+    // Days since 1970 to a civil date (Howard Hinnant's `civil_from_days`).
+    let z = days + 719_468;
+    let era = z.div_euclid(146_097);
+    let doe = z - era * 146_097;
+    let yoe = (doe - doe / 1_460 + doe / 36_524 - doe / 146_096) / 365;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let day = doy - (153 * mp + 2) / 5 + 1;
+    let month = if mp < 10 { mp + 3 } else { mp - 9 };
+    let year = yoe + era * 400 + i64::from(month <= 2);
+    zip::DateTime::from_date_and_time(
+        u16::try_from(year).ok()?,
+        month as u8,
+        day as u8,
+        (of_day / 3_600) as u8,
+        (of_day % 3_600 / 60) as u8,
+        (of_day % 60) as u8,
+    )
+    .ok()
 }
 
 /// What the pack is, for whoever opens it.
@@ -704,6 +738,16 @@ mod tests {
         let plan = plan(&song, &parsed).expect("packs");
         let Entry::Text(text) = &plan.files["a.song"] else { panic!() };
         assert!(text.contains("kick \"external/kick.wav\"") && text.contains("snare \"external/kick-2.wav\""), "{text}");
+    }
+
+    #[test]
+    fn a_zip_is_dated_as_a_calendar_says() {
+        let at = |seconds: u64| zip_time(std::time::UNIX_EPOCH + std::time::Duration::from_secs(seconds));
+        let said = |t: zip::DateTime| (t.year(), t.month(), t.day(), t.hour(), t.minute(), t.second());
+        // 2026-09-21 15:59:58 UTC, and the last second of a leap year's February.
+        assert_eq!(at(1_790_006_398).map(said), Some((2026, 9, 21, 15, 59, 58)));
+        assert_eq!(at(951_868_799).map(said), Some((2000, 2, 29, 23, 59, 58)));
+        assert!(at(0).is_none(), "1970 is before a zip can say");
     }
 
     #[test]
