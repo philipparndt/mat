@@ -149,6 +149,17 @@ enum Command {
         #[arg(short, long)]
         output: Option<PathBuf>,
     },
+    /// Pack a song and every file it reads into one zip: its includes, its
+    /// samples and audio, its own instruments and the library samples it uses,
+    /// with the paths in its text pointing into the pack. What comes with
+    /// installed software (Logic, GarageBand, Surge, plugins) is listed in the
+    /// pack's README instead.
+    Pack {
+        song: PathBuf,
+        /// The zip to write; the song's name beside it when not given.
+        #[arg(short, long)]
+        output: Option<PathBuf>,
+    },
     /// Measure, and hear, how a mix carries to other devices: a Sonos, a car,
     /// a phone. Takes a song, or a rendered WAV, AIFF or CAF.
     ///
@@ -475,6 +486,39 @@ fn run(cli: Cli) -> anyhow::Result<ExitCode> {
         }
         Command::Lsp => {
             mat_lsp::run_stdio().map_err(|e| anyhow::anyhow!("{e}"))?;
+        }
+        Command::Pack { song, output } => {
+            // Arranged first, so a song that would not render is said as a
+            // render says it, with its lines, rather than packed.
+            if load(&song)?.is_none() {
+                return Ok(ExitCode::FAILURE);
+            }
+            let parsed = mat_core::parse_file(&song).with_context(|| format!("reading {}", song.display()))?;
+            let output = output.unwrap_or_else(|| song.with_extension("zip"));
+            match mat_core::pack::pack(&song, &parsed, &output) {
+                Ok(packed) => {
+                    println!(
+                        "packed {} files, {:.1} MB, into {}; {} path(s) rewritten to point into it",
+                        packed.files,
+                        packed.bytes as f64 / 1_000_000.0,
+                        output.display(),
+                        packed.rewritten
+                    );
+                    if !packed.needs.is_empty() {
+                        println!("needs, installed where it is played (listed in its README.txt):");
+                        for need in &packed.needs {
+                            println!("  - {need}");
+                        }
+                    }
+                }
+                Err(problems) => {
+                    for problem in &problems {
+                        eprintln!("error: {problem}");
+                    }
+                    eprintln!("nothing was packed");
+                    return Ok(ExitCode::FAILURE);
+                }
+            }
         }
         Command::Export { song, output } => {
             let Some((timeline, _)) = load(&song)? else { return Ok(ExitCode::FAILURE) };

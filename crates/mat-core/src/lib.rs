@@ -15,6 +15,7 @@ pub mod instruments;
 pub mod lexer;
 pub mod midi;
 pub mod model;
+pub mod pack;
 pub mod parser;
 pub mod placement;
 pub mod presets;

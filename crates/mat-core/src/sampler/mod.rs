@@ -88,6 +88,29 @@ impl Prepared {
     }
 }
 
+/// Where a sample an instrument names is: where it says, next to the
+/// instrument, or anywhere in the sampler libraries by its name.
+fn find_sample(sample: &SampleRef, exs_dir: &Path) -> Option<PathBuf> {
+    [Path::new(&sample.folder).join(&sample.file_name), exs_dir.join(&sample.file_name)]
+        .into_iter()
+        .find(|p| p.is_file())
+        .or_else(|| sample_index().get(&sample.file_name.to_lowercase()).cloned())
+}
+
+/// The sample files an `.exs` names, each as it is named and where it was
+/// found, if it was: what `Sampler::load` would open. For `mat pack`.
+pub fn sample_files(path: &Path) -> Result<Vec<(String, Option<PathBuf>)>, String> {
+    let instrument = exs::read(path)?;
+    let exs_dir = path.parent().unwrap_or(Path::new("."));
+    Ok(instrument.samples.iter().map(|s| (s.file_name.clone(), find_sample(s, exs_dir))).collect())
+}
+
+/// Whether a sample is Apple's — in Logic's or GarageBand's own library,
+/// which is installed with them and not the song's to hand on.
+pub fn is_installed_sample(path: &Path) -> bool {
+    sample_roots().iter().take(2).any(|root| path.starts_with(root))
+}
+
 impl Sampler {
     pub fn load(path: &Path) -> Result<Self, String> {
         let instrument = exs::read(path)?;
@@ -98,12 +121,7 @@ impl Sampler {
             .samples
             .iter()
             .map(|s| {
-                let candidates = [Path::new(&s.folder).join(&s.file_name), exs_dir.join(&s.file_name)];
-                let found = candidates
-                    .into_iter()
-                    .find(|p| p.is_file())
-                    .or_else(|| sample_index().get(&s.file_name.to_lowercase()).cloned());
-                match found.map(|p| AudioFile::open(&p)) {
+                match find_sample(s, exs_dir).map(|p| AudioFile::open(&p)) {
                     Some(Ok(f)) => Some(f),
                     Some(Err(e)) => {
                         warnings.push(e);

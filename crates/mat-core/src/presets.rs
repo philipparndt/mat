@@ -35,6 +35,12 @@ impl Library {
 
 const SOURCE: &str = include_str!("../presets.song");
 
+/// A line of `presets.song` as it is written, 1-based as spans count: what
+/// `mat pack` writes out when a song's pack carries a preset's samples.
+pub fn source_line(line: usize) -> Option<&'static str> {
+    line.checked_sub(1).and_then(|index| SOURCE.lines().nth(index))
+}
+
 pub fn library() -> &'static Library {
     static LIB: OnceLock<Library> = OnceLock::new();
     LIB.get_or_init(|| {

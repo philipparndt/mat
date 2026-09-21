@@ -27,6 +27,7 @@ cargo build --release
 ./target/release/mat render examples/drunken-sailor.song --stream         # written as it renders, to play at once
 ./target/release/mat play   examples/drunken-sailor.song   # render and play
 ./target/release/mat export examples/drunken-sailor.song   # arranged timeline as JSON
+./target/release/mat pack   examples/neon.song             # -> examples/neon.zip: the song and every file it reads
 ./target/release/mat translate examples/drunken-sailor.song # how the mix carries to a Sonos, a car, a phone
 ./target/release/mat inspect "logic:01 Acoustic Pianos/Steinway Grand Piano 2.exs"
 ./target/release/mat presets                                # built-in instrument and master presets
@@ -38,6 +39,18 @@ often it repeats, with the pattern's name, `start` and `end`, the length of one
 `pass`, `repeat`, `transpose`, and the `file` and `line` it was written on and
 the pattern was defined on. Each note's `region` is the index of the one it came
 from. It is what an editor draws a song's patterns and notes from.
+
+`mat pack` puts a song and everything it reads into one zip, to hand on or
+keep: its included files, its samples and audio, its own `.exs` instruments with
+their samples, and the samples it takes from mat's library. The zip is one
+folder named after the song, and the paths in its text point into it — a file
+from outside the song's folder goes into `external/`, a library sample into
+`mat-samples/`, and a preset that reads library samples is written out in the
+song. Only paths that have to change are changed. What comes with software
+installed where the song is played — Logic's and GarageBand's libraries, the
+General MIDI bank, Surge, Audio Unit and CLAP plugins — is left as written and
+listed in the pack's `README.txt`. A sample that is not there stops the pack,
+with where it is named.
 
 ### Checking a mix on other devices
 
